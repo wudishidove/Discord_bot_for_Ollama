@@ -36,7 +36,8 @@ This is a Discord Bot chatbot project that interacts with various models via the
 - `++help`: View a list of commands and their descriptions.
 
 ### Contact
-For any issues, please submit them via the GitHub Issues system.
+For any issues, pm .
 
-[Switch to Chinese](#\u7e41\u9ad4\u4e2d\u6587)
+[切換到英文](README_zh.md)
+
 
