@@ -40,7 +40,7 @@
 ### 聯繫方式
 如有任何問題，pm我。
 
-[切換到英文](README.md)
+[Switch to English](README.md)
 
 
 
