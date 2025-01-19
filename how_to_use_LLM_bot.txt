@@ -1,0 +1,2 @@
+
+Vscode 執行bot.py
