@@ -72,7 +72,7 @@ async def help(ctx):
     await ctx.send(help_message)
 
 # 儲存當前選擇的模型
-current_model = "gemma2:latest"  # 預設模型
+current_model = "phi4:latest"  # 預設模型
 
 
 @bot.command()
@@ -82,7 +82,7 @@ async def setmodel(ctx, model_name: str):
     global current_model
     # 可用模型清單
     available_models = ["Qwen2.5:7b", "gemma2:latest",
-                        "mistral:latest", "llama3.2:latest"]
+                        "mistral:latest", "llama3.2:latest", "phi4:latest"]
 
     if model_name in available_models:
         current_model = model_name
