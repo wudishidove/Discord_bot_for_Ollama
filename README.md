@@ -94,6 +94,6 @@ Here are the bot’s available commands:
 
 Let me know if there’s anything else you’d like to adjust or add!
 
-[切換到英文](README_zh.md)
+[切換到中文](README_zh.md)
 
 
