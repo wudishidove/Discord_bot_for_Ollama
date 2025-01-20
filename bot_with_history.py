@@ -15,7 +15,8 @@ MODEL_MAX_TOKENS = {
 }
 
 # 初始化記憶功能
-memory = ConversationBufferMemory(max_token_limit=8192)  # 默認為 phi4 的最大 token 限制
+memory = ConversationBufferMemory(
+    max_token_limit=8192)  # 默認為 phi4 的最大 token 限制
 
 # 載入配置文件
 with open("config.json", "r") as config_file:
@@ -38,8 +39,10 @@ bot = commands.Bot(command_prefix="++", intents=intents)
 # 儲存當前選擇的模型
 current_model = "phi4:latest"  # 預設模型
 
+
 def is_in_allowed_channel(ctx):
     return ctx.channel.id == ALLOWED_CHANNEL_ID
+
 
 def update_memory_limit():
     """根據當前模型更新記憶最大 token 限制"""
@@ -48,6 +51,7 @@ def update_memory_limit():
     memory = ConversationBufferMemory(max_token_limit=max_tokens)
     print(f"[DEBUG] 記憶最大 token 限制更新為: {max_tokens}")
 
+
 def save_history_to_file():
     """將記憶歷史保存到 JSON 文件中"""
     context = memory.load_memory_variables({})
@@ -55,13 +59,14 @@ def save_history_to_file():
         json.dump(context, history_file, ensure_ascii=False, indent=4)
     print("[DEBUG] 記憶已保存到 history.json")
 
+
 def trim_memory_with_ollama():
     """使用 Ollama 模型裁剪記憶歷史"""
     context = memory.load_memory_variables({})
     history = context.get("history", "")
 
     # 如果記憶太短，無需裁剪
-    if len(history.split("\n")) < 10:
+    if len(history.split("\n")) < 20:
         print("[DEBUG] 記憶內容不足以裁剪，跳過")
         return
 
@@ -87,12 +92,14 @@ def trim_memory_with_ollama():
     else:
         print("[ERROR] Ollama API 返回錯誤：", response.status_code, response.text)
 
+
 def process_user_input(user_input):
     """處理用戶輸入，使用 Ollama API 並儲存記憶"""
     try:
         # 確保記憶功能包含上下文
         context = memory.load_memory_variables({})
-        prompt_with_memory = context.get("history", "") + f"\nUser: {user_input}\nBot:"
+        prompt_with_memory = context.get(
+            "history", "") + f"\nUser: {user_input}\nBot:"
 
         print("[DEBUG] Prompt sent to Ollama API:", prompt_with_memory)
         start_time = time.time()
@@ -119,7 +126,8 @@ def process_user_input(user_input):
                                 break
                         except json.JSONDecodeError:
                             continue
-                    memory.save_context({"input": user_input}, {"output": full_response})
+                    memory.save_context({"input": user_input}, {
+                                        "output": full_response})
                     print("[DEBUG] Full response processed:", full_response)
                     save_history_to_file()  # 保存記憶歷史
                     return full_response.strip(), elapsed_time
@@ -128,7 +136,8 @@ def process_user_input(user_input):
                     result = response.json()
                     bot_response = result.get("response", "模型未返回內容，請稍後再試。")
                     # 更新記憶
-                    memory.save_context({"input": user_input}, {"output": bot_response})
+                    memory.save_context({"input": user_input}, {
+                                        "output": bot_response})
                     print("[DEBUG] Single-line response:", bot_response)
                     save_history_to_file()  # 保存記憶歷史
                     return bot_response, elapsed_time
@@ -140,6 +149,7 @@ def process_user_input(user_input):
             )
     except Exception as e:
         raise Exception(f"處理請求時發生錯誤：{e}")
+
 
 @bot.event
 async def on_ready():
@@ -158,6 +168,7 @@ async def on_ready():
         print(f"發送上線通知時出現錯誤：{e}")
 
 bot.remove_command("help")
+
 
 @bot.command()
 @commands.check(is_in_allowed_channel)
@@ -186,6 +197,7 @@ async def help(ctx):
 """
     await ctx.send(help_message)
 
+
 @bot.command()
 @commands.check(is_in_allowed_channel)
 async def chat(ctx, *, user_input: str):
@@ -204,6 +216,7 @@ async def chat(ctx, *, user_input: str):
         print("[ERROR] Exception in chat command:", e)
         await ctx.send(f"處理請求時出現錯誤：{e}")
 
+
 @bot.command()
 @commands.check(is_in_allowed_channel)
 async def setmodel(ctx, model_name: str):
@@ -220,12 +233,14 @@ async def setmodel(ctx, model_name: str):
         print("[ERROR] Invalid model name:", model_name)
         await ctx.send(f"無效的模型名稱！可用模型：{', '.join(available_models)}")
 
+
 @bot.command()
 @commands.check(is_in_allowed_channel)
 async def clean_history(ctx):
     """清除記憶歷史"""
     global memory
-    memory = ConversationBufferMemory(max_token_limit=MODEL_MAX_TOKENS.get(current_model, 8192))
+    memory = ConversationBufferMemory(
+        max_token_limit=MODEL_MAX_TOKENS.get(current_model, 8192))
     print("[DEBUG] 記憶歷史已清除")
     await ctx.send("記憶歷史已成功清除！")
 
