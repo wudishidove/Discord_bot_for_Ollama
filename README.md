@@ -1,59 +1,98 @@
-# README
+以下是 **`bot_with_history.py`** 的英文版 README 文件範例：
 
-## English
-### Project Overview
-This is a Discord Bot chatbot project that interacts with various models via the Ollama API. You can dynamically switch models based on your needs and chat with the bot in a designated channel.
+---
 
-### Features
-- **Model Interaction:** Communicate with models via the Ollama API.
-- **Model Switching:** Dynamically select models. You need to install the models yourself using the following command:
-  ```bash
-  ollama pull [Model Name in Ollama library]
-  ```
-- **Channel Restriction:** Commands are limited to specific channels to prevent misuse.
-- **Simple Commands:** Includes `++chat`, `++setmodel`, and `++help`.
+# Discord Bot with History
 
-### How to Use
-1. Ensure that Ollama is installed and running:
-   - Visit [Ollama Official Site](https://ollama.ai) for download and installation instructions.
-   - Make sure `ollama serve` is successfully running.
-2. Clone the project locally:
-   ```bash
-   git clone <GitHub Repository URL>
-   ```
-3. Create a `config.json` file in the project directory and add your Discord Token:
-   ```json
-   {
-       "DISCORD_TOKEN": "Your Discord Bot Token"
-   }
-   ```
-4. **Set up the Discord Bot:**
-   - Log in to the [Discord Developer Portal](https://discord.com/developers/applications).
-   - Click "New Application" to create a new application.
-   - Go to the **Bot** tab and click "Add Bot" to create a bot.
-   - Copy the Token and paste it into your `config.json`.
-   - Under **OAuth2** > **URL Generator**, select "bot" and the required permissions, then generate an invite link to add the bot to your server.
+## Project Overview
+This project is a Discord bot integrated with **Ollama API** and **LangChain memory features**. It supports multiple conversation models, saves chat history, and provides a seamless conversational experience. Users can interact with the bot, switch models, and manage conversation history effortlessly.
 
-5. Start the bot:
-   ```bash
-   python bot.py
-   ```
-6. **Enable Privileged Gateway Intents:**
-   - Go back to the [Discord Developer Portal](https://discord.com/developers/applications).
-   - Select your application and navigate to the **Bot** settings page.
-   - Enable the **Message Content Intent** option.
+---
+
+## Features
+- **Multi-Model Support**: Choose from various models for text generation and multilingual support.
+- **Conversation Memory**: Retains chat context for continuous conversations.
+- **History Trimming**: Automatically optimizes and trims lengthy memory for efficient performance.
+- **User-Friendly Commands**: Intuitive commands for easy operation.
+- **Extensibility**: Customizable for additional models and configurations.
+
+---
+
+## Usage
+
+### 1. Environment Setup
+Ensure you have the following prerequisites installed:
+- Python 3.8 or later
+- Discord.py
+- LangChain
+- Requests
+
+#### Install Dependencies
+Run the following command to install the required packages:
+```bash
+pip install discord.py langchain requests
+```
+
+---
+
+### 2. Install Ollama
+#### Ollama is the core service powering this bot and must be installed locally.
+
+1. Download and install Ollama from the [official website](https://ollama.ai).
+2. Start the Ollama local server, which runs by default at `http://localhost:11434`.
+
+---
+
+### 3. Configure the Bot
+Create a `config.json` file in the project directory with the following content:
+```json
+{
+    "DISCORD_TOKEN": "your_discord_bot_token"
+}
+```
+
+Replace `"your_discord_bot_token"` with the token generated in your Discord Developer Portal.
+
+---
+
+### 4. Run the Bot
+Start the bot with the following command:
+```bash
+python bot_with_history.py
+```
+
+Once the bot is successfully online, it will send a ready message to the designated Discord channel.
+
+---
+
+## Commands
 
 ### Available Commands
-- `++chat <message>`: Chat with the bot.
-- `++setmodel <model_name>`: Switch the current model.
-- `++help`: View a list of commands and their descriptions.
+Here are the bot’s available commands:
 
-### Notes
-- **Ollama Model Management:** Ensure that you have correctly downloaded and installed the required models.
-- **Discord Permissions:** Verify that the bot has sufficient permissions in the server to read and send messages.
+1. **Chat Commands**:
+   - `++chat <message>`: Chat with the bot.
+   - Example: `++chat Hello`
 
-### Contact
-For any issues, pm .
+2. **Model Selection**:
+   - `++setmodel <model_name>`: Switch between available conversation models.
+   - Supported models: `Qwen2.5:7b`, `gemma2:latest`, `mistral:latest`, `llama3.2:latest`, `phi4:latest`.
+   - Example: `++setmodel gemma2:latest`
+
+3. **Clear History**:
+   - `++clean_history`: Clears the bot’s memory history.
+
+4. **Help**:
+   - `++help`: Displays the list of available commands and instructions.
+
+---
+
+## Notes
+- Ensure that the Ollama local server is running and accessible at `http://localhost:11434`.
+- Verify that the Discord token is correctly configured in the `config.json` file.
+- Replace the channel ID in the code with the actual Discord channel ID you intend to use.
+
+Let me know if there’s anything else you’d like to adjust or add!
 
 [切換到英文](README_zh.md)
 
