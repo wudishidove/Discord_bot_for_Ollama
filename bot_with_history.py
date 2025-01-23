@@ -195,10 +195,10 @@ async def help(ctx):
 - phi4:latest     擅長文本生成、對話系統
 - llama3.2:latest 擅長多語言支持、對話系統
 - llama3.2-vision:latest  圖像識別、視覺推理
-- deepseek-r1:1.5b 快速回答
-- deepseek-r1:latest 7B中等複雜度
-- deepseek-r1:8b  數學程式領域出色
-- deepseek-r1:14b 高等複雜度
+- deepseek-r1:1.5b 快速回答 會輸出推理(思考)過程
+- deepseek-r1:latest 7B中等複雜度 會輸出推理(思考)過程
+- deepseek-r1:8b  數學程式領域出色 會輸出推理(思考)過程
+- deepseek-r1:14b 高等複雜度 會輸出推理(思考)過程
 🎯 **使用方式**:
 - 輸入 `++chat 你好` 與 Bot 開始對話。
 - 輸入 `++setmodel gemma2:latest` 切換到指定的模型。
@@ -228,6 +228,7 @@ async def chat(ctx, *, user_input: str):
     except Exception as e:
         print("[ERROR] Exception in chat command:", e)
         await ctx.send(f"出現錯誤：{e}")
+
 
 @bot.command()
 @commands.check(is_in_allowed_channel)
