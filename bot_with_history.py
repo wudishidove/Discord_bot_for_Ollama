@@ -211,59 +211,23 @@ async def help(ctx):
 @commands.check(is_in_allowed_channel)
 @bot.command(name="chat")
 async def chat(ctx, *, user_input: str):
-    """處理聊天指令，生成文本並轉換為語音輸出"""
+    """處理聊天指令"""
     try:
         print(f"收到指令：{user_input}")
         thinking_message = await ctx.send(f"已收到：{user_input}，正在思考...")
 
         # 生成 Ollama 回應
-        response = process_user_input(user_input).strip()  # 去除首尾空白字符
+        response, _ = process_user_input(user_input)
+        response = response.strip()
         await thinking_message.delete()
 
         if response and response != "模型未返回內容，請稍後再試。":
-            # TTS 配置
-            speaker_name = "Character_name_6_為廚"  # 預設說話人
-            language = "ZH"  # 預設語言
-            speed = 0.6  # 語速
-
-            # 生成語音
-            print("[DEBUG] 開始生成 TTS 音頻...")
-            print(f"[DEBUG] TTS 音頻生成文本: {response}")  # 顯示處理後的回應
-            status, result = tts_model.synthesize(
-                response, speaker_name, language, speed)
-
-            if status == "Success":
-                sampling_rate, audio = result
-                output_file = "output.wav"
-                sf.write(output_file, audio, sampling_rate, format="WAV")
-
-                # 播放生成的音頻
-                if not ctx.guild.voice_client:
-                    await ctx.send("請先讓我加入語音頻道，使用 --join 指令。")
-                    return
-
-                source = FFmpegPCMAudio(output_file)
-                ctx.guild.voice_client.play(
-                    source, after=lambda e: print(f"播放完成：{e}"))
-                print("[DEBUG] 開始播放語音...")
-
-                # 等待語音播放完成
-                while ctx.guild.voice_client.is_playing():
-                    await asyncio.sleep(0.5)
-
-                print("[DEBUG] 語音播放完成")
-                await ctx.send(f"已成功播放語音內容：{response}")
-            else:
-                print("[ERROR] TTS 生成失敗：", status)
-                await ctx.send(f"TTS 生成失敗：{status}")
+            await ctx.send(response)
         else:
-            print("[ERROR] 模型未返回內容或發生錯誤")
             await ctx.send("模型未返回內容或發生錯誤，請稍後再試。")
     except Exception as e:
         print("[ERROR] Exception in chat command:", e)
-        await thinking_message.delete()
         await ctx.send(f"出現錯誤：{e}")
-
 
 @bot.command()
 @commands.check(is_in_allowed_channel)
