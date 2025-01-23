@@ -11,7 +11,12 @@ MODEL_MAX_TOKENS = {
     "phi4:latest": 8192,
     "Qwen2.5:7b": 4096,
     "mistral:latest": 8192,
-    "llama3.2:latest": 128000
+    "llama3.2:latest": 128000,
+    "llama3.2-vision:latest": 128000,
+    "deepseek-r1:1.5b": 128000,
+    "deepseek-r1:latest": 128000,
+    "deepseek-r1:8b": 128000,
+    "deepseek-r1:14b": 128000
 }
 
 # 初始化記憶功能
@@ -103,7 +108,8 @@ def process_user_input(user_input):
 
         print("[DEBUG] Prompt sent to Ollama API:", prompt_with_memory)
         start_time = time.time()
-
+        full_prompt = f"如我用繁體中文問問題，也請你用繁體中文回答以下問題並把字數控制在30字以內，並不使用任何特殊字符和表情：{prompt_with_memory}"
+        prompt_with_memory = full_prompt
         # 發送到 Ollama API
         response = requests.post(
             OLLAMA_API_URL,
@@ -186,9 +192,13 @@ async def help(ctx):
 - Qwen2.5:7b      擅長編碼和數學能力
 - gemma2:latest   擅長文本生成、對話系統
 - mistral:latest  一般用途
-- llama3.2:latest 擅長多語言支持、對話系統
 - phi4:latest     擅長文本生成、對話系統
-
+- llama3.2:latest 擅長多語言支持、對話系統
+- llama3.2-vision:latest  圖像識別、視覺推理
+- deepseek-r1:1.5b 快速回答
+- deepseek-r1:latest 7B中等複雜度
+- deepseek-r1:8b  數學程式領域出色
+- deepseek-r1:14b 高等複雜度
 🎯 **使用方式**:
 - 輸入 `++chat 你好` 與 Bot 開始對話。
 - 輸入 `++setmodel gemma2:latest` 切換到指定的模型。
@@ -200,21 +210,60 @@ async def help(ctx):
 
 @bot.command()
 @commands.check(is_in_allowed_channel)
+@bot.command(name="chat")
 async def chat(ctx, *, user_input: str):
-    """處理聊天指令，調用 Ollama API 並使用記憶功能"""
+    """處理聊天指令，生成文本並轉換為語音輸出"""
     try:
-        print("[DEBUG] Received chat command with input:", user_input)
-        thinking_message = await ctx.send(f"已收到：{user_input}，正在使用 `{current_model}` 模型思考...")
-        response, elapsed_time = process_user_input(user_input)
-        if response:
-            await thinking_message.delete()
-            await ctx.send(f"回應已生成，耗時 {elapsed_time:.2f} 秒：\n{response}")
+        print(f"收到指令：{user_input}")
+        thinking_message = await ctx.send(f"已收到：{user_input}，正在思考...")
+
+        # 生成 Ollama 回應
+        response = process_user_input(user_input).strip()  # 去除首尾空白字符
+        await thinking_message.delete()
+
+        if response and response != "模型未返回內容，請稍後再試。":
+            # TTS 配置
+            speaker_name = "Character_name_6_為廚"  # 預設說話人
+            language = "ZH"  # 預設語言
+            speed = 0.6  # 語速
+
+            # 生成語音
+            print("[DEBUG] 開始生成 TTS 音頻...")
+            print(f"[DEBUG] TTS 音頻生成文本: {response}")  # 顯示處理後的回應
+            status, result = tts_model.synthesize(
+                response, speaker_name, language, speed)
+
+            if status == "Success":
+                sampling_rate, audio = result
+                output_file = "output.wav"
+                sf.write(output_file, audio, sampling_rate, format="WAV")
+
+                # 播放生成的音頻
+                if not ctx.guild.voice_client:
+                    await ctx.send("請先讓我加入語音頻道，使用 --join 指令。")
+                    return
+
+                source = FFmpegPCMAudio(output_file)
+                ctx.guild.voice_client.play(
+                    source, after=lambda e: print(f"播放完成：{e}"))
+                print("[DEBUG] 開始播放語音...")
+
+                # 等待語音播放完成
+                while ctx.guild.voice_client.is_playing():
+                    await asyncio.sleep(0.5)
+
+                print("[DEBUG] 語音播放完成")
+                await ctx.send(f"已成功播放語音內容：{response}")
+            else:
+                print("[ERROR] TTS 生成失敗：", status)
+                await ctx.send(f"TTS 生成失敗：{status}")
         else:
-            await thinking_message.delete()
-            await ctx.send("模型未返回內容，請稍後再試。")
+            print("[ERROR] 模型未返回內容或發生錯誤")
+            await ctx.send("模型未返回內容或發生錯誤，請稍後再試。")
     except Exception as e:
         print("[ERROR] Exception in chat command:", e)
-        await ctx.send(f"處理請求時出現錯誤：{e}")
+        await thinking_message.delete()
+        await ctx.send(f"出現錯誤：{e}")
 
 
 @bot.command()
@@ -223,7 +272,7 @@ async def setmodel(ctx, model_name: str):
     """設定使用的模型"""
     global current_model
     available_models = ["Qwen2.5:7b", "gemma2:latest",
-                        "mistral:latest", "llama3.2:latest", "phi4:latest"]
+                        "mistral:latest", "llama3.2:latest", "phi4:latest", "llama3.2-vision:latest", "deepseek-r1:latest", "deepseek-r1:1.5b", "deepseek-r1:14b", "deepseek-r1:8b"]
     if model_name in available_models:
         current_model = model_name
         update_memory_limit()  # 更新記憶限制
