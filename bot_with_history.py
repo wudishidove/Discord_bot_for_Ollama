@@ -208,7 +208,6 @@ async def help(ctx):
     await ctx.send(help_message)
 
 
-@bot.command()
 @commands.check(is_in_allowed_channel)
 @bot.command(name="chat")
 async def chat(ctx, *, user_input: str):
