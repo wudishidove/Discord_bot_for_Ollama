@@ -2,7 +2,7 @@
 
 ---
 
-# Discord Bot with History
+# Discord Bot with Ollama
 
 ## Project Overview
 This project is a Discord bot integrated with **Ollama API** and **LangChain memory features**. It supports multiple conversation models, saves chat history, and provides a seamless conversational experience. Users can interact with the bot, switch models, and manage conversation history effortlessly.
