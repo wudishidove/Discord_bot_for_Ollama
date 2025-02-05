@@ -1,4 +1,4 @@
-以下是 **`bot_with_history.py`** 的英文版 README 文件範例：
+Here is english version of  **`bot_with_history.py`** README ：
 
 ---
 
@@ -40,7 +40,10 @@ pip install discord.py langchain requests
 
 1. Download and install Ollama from the [official website](https://ollama.ai).
 2. Start the Ollama local server, which runs by default at `http://localhost:11434`.
-
+3. Download model  you can use "open webui" or 
+```bash
+    ollama pull <model name>
+```
 ---
 
 ### 3. Configure the Bot
@@ -76,7 +79,7 @@ Here are the bot’s available commands:
 
 2. **Model Selection**:
    - `++setmodel <model_name>`: Switch between available conversation models.
-   - Supported models: `Qwen2.5:7b`, `gemma2:latest`, `mistral:latest`, `llama3.2:latest`, `phi4:latest`.
+   - Supported models(model you download): `Qwen2.5:7b`, `gemma2:latest`, `mistral:latest`, `llama3.2:latest`, `phi4:latest`.
    - Example: `++setmodel gemma2:latest`
 
 3. **Clear History**:
