@@ -2,7 +2,7 @@
 
 ---
 
-# Discord Bot with History
+# Discord Bot with ollama
 
 ## 專案簡介
 本專案是一個基於 Discord 的聊天機器人，整合了 **Ollama API** 和 **LangChain 記憶功能**，支援多種模型對話並能保存聊天記錄。使用者可以輕鬆地與機器人互動、切換模型以及管理對話歷史。
