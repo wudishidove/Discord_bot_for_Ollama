@@ -40,7 +40,7 @@ pip install discord.py langchain requests
 
 1. 到 [Ollama 官網](https://ollama.ai) 下載並安裝 Ollama。
 2. 啟動 Ollama 本地服務，默認運行於 `http://localhost:11434`。
-
+3. 下載模型 可用open webui 或 ```ollama pull <模型名稱>```
 ---
 
 ### 3. 配置文件設置
@@ -76,7 +76,7 @@ python bot_with_history.py
 
 2. **模型設置**：
    - `++setmodel <模型名稱>`：切換聊天模型。
-   - 可用模型：`Qwen2.5:7b`，`gemma2:latest`，`mistral:latest`，`llama3.2:latest`，`phi4:latest`。
+   - 可用模型(你已安裝的模型)：`Qwen2.5:7b`，`gemma2:latest`，`mistral:latest`，`llama3.2:latest`，`phi4:latest`。
    - 例如：`++setmodel gemma2:latest`
 
 3. **清除歷史**：
@@ -91,6 +91,7 @@ python bot_with_history.py
 - 須確保 Ollama 本地服務正在運行，並且可通過 `http://localhost:11434` 訪問。
 - 在配置文件中正確填寫 Discord Token 以保證機器人正常運行。
 - 頻道 ID 需替換為實際使用的 Discord 頻道 ID。
+- 
 
 
 如果有其他補充或修改需求，請告訴我！
