@@ -40,7 +40,10 @@ pip install discord.py langchain requests
 
 1. 到 [Ollama 官網](https://ollama.ai) 下載並安裝 Ollama。
 2. 啟動 Ollama 本地服務，默認運行於 `http://localhost:11434`。
-3. 下載模型 可用open webui 或 ```ollama pull <模型名稱>```
+3. 下載模型 可用open webui 或
+```bash
+    ollama pull <模型名稱>
+```
 ---
 
 ### 3. 配置文件設置
