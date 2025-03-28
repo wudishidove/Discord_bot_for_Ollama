@@ -28,7 +28,7 @@ MODEL_MAX_TOKENS = {
     "deepseek-r1:32b": 131072
 }
 
-# 初始化記憶功能
+# 初始化記憶功能（臨時使用，每次對話前都會重新加載頻道特定的記憶）
 memory = ConversationBufferMemory(
     max_token_limit=128000)  # 默認為 phi4 的最大 token 限制
 # 紀錄下載的檔案內容
@@ -62,23 +62,65 @@ def is_in_allowed_channel(ctx):
 
 
 def update_memory_limit():
-    """根據當前模型更新記憶最大 token 限制"""
+    """根據當前模型更新記憶最大 token 限制（只更新記憶大小，不影響內容）"""
     global memory
     max_tokens = MODEL_MAX_TOKENS.get(current_model, 8192)  # 默認為 8192
-    memory = ConversationBufferMemory(max_token_limit=max_tokens)
+    # 只更新 token 限制，不會清除任何記憶內容
+    memory.max_token_limit = max_tokens
     print(f"[DEBUG] 記憶最大 token 限制更新為: {max_tokens}")
 
 
-def save_history_to_file():
-    """將記憶歷史保存到 JSON 文件中"""
+def save_history_to_file(channel_id):
+    """將記憶歷史保存到頻道特定的 JSON 文件中"""
+    if not channel_id:
+        print("[WARNING] 未提供頻道 ID，無法保存記憶")
+        return
+        
     context = memory.load_memory_variables({})
-    with open("history.json", "w", encoding="utf-8") as history_file:
+    # 確保頻道目錄存在
+    os.makedirs(str(channel_id), exist_ok=True)
+    history_file_path = os.path.join(str(channel_id), "history.json")
+    with open(history_file_path, "w", encoding="utf-8") as history_file:
         json.dump(context, history_file, ensure_ascii=False, indent=4)
-    print("[DEBUG] 記憶已保存到 history.json")
+    print(f"[DEBUG] 頻道 {channel_id} 的記憶已保存到 {history_file_path}")
 
 
-def trim_memory_with_ollama():
+def load_history_from_file(channel_id):
+    """從頻道特定的 JSON 文件中載入記憶歷史"""
+    global memory
+    
+    # 重置記憶（確保不會混合不同頻道的記憶）
+    memory = ConversationBufferMemory(max_token_limit=MODEL_MAX_TOKENS.get(current_model, 8192))
+    
+    if not channel_id:
+        print("[WARNING] 未提供頻道 ID，無法載入記憶")
+        return False
+        
+    # 載入指定頻道的歷史記憶
+    history_file_path = os.path.join(str(channel_id), "history.json")
+    if os.path.exists(history_file_path):
+        try:
+            with open(history_file_path, "r", encoding="utf-8") as history_file:
+                context = json.load(history_file)
+                if "history" in context:
+                    # 將歷史加載到記憶中
+                    memory.save_context({"input": ""}, {"output": context["history"]})
+                    print(f"[DEBUG] 已載入頻道 {channel_id} 的記憶歷史")
+                    return True
+        except Exception as e:
+            print(f"[ERROR] 載入頻道 {channel_id} 的記憶歷史時出錯: {e}")
+    else:
+        print(f"[DEBUG] 頻道 {channel_id} 沒有歷史記憶文件，使用空記憶")
+    
+    return False
+
+
+def trim_memory_with_ollama(channel_id):
     """使用 Ollama 模型裁剪記憶歷史"""
+    if not channel_id:
+        print("[WARNING] 未提供頻道 ID，無法裁剪記憶")
+        return
+        
     context = memory.load_memory_variables({})
     history = context.get("history", "")
     estimated_tokens = len(history.split())  # 簡單估算token數
@@ -115,16 +157,19 @@ def trim_memory_with_ollama():
 
             # 更新記憶
             memory.save_context({"input": ""}, {"output": trimmed_history})
-            save_history_to_file()  # 保存裁剪後的記憶
+            save_history_to_file(channel_id)  # 保存裁剪後的記憶
         except json.JSONDecodeError as e:
             print("[ERROR] 無法解析裁剪回應：", e)
     else:
         print("[ERROR] Ollama API 返回錯誤：", response.status_code, response.text)
 
 
-def process_user_input(user_input):
+def process_user_input(user_input, channel_id):
     """處理用戶輸入，使用 Ollama API 並儲存記憶"""
     try:
+        # 先加載頻道特定的記憶
+        load_history_from_file(channel_id)
+        
         # 檢查並可能裁減記憶
         context = memory.load_memory_variables({})
         current_tokens = len(context.get("history", "").split())  # 簡單估算token數
@@ -132,7 +177,7 @@ def process_user_input(user_input):
         # 如果超過最大限制的80%，觸發裁減
         if current_tokens > MODEL_MAX_TOKENS[current_model] * 0.8:
             print(f"[DEBUG] 當前token數（約{current_tokens}）超過限制的80%，觸發裁減")
-            trim_memory_with_ollama()
+            trim_memory_with_ollama(channel_id)
             # 重新載入裁減後的上下文
             context = memory.load_memory_variables({})
 
@@ -167,7 +212,7 @@ def process_user_input(user_input):
                     memory.save_context({"input": user_input}, {
                                         "output": full_response})
                     print("[DEBUG] Full response processed:", full_response)
-                    save_history_to_file()  # 保存記憶歷史
+                    save_history_to_file(channel_id)  # 保存記憶歷史
                     return full_response.strip(), elapsed_time
                 else:
                     # 單行 JSON 回應
@@ -177,7 +222,7 @@ def process_user_input(user_input):
                     memory.save_context({"input": user_input}, {
                                         "output": bot_response})
                     print("[DEBUG] Single-line response:", bot_response)
-                    save_history_to_file()  # 保存記憶歷史
+                    save_history_to_file(channel_id)  # 保存記憶歷史
                     return bot_response, elapsed_time
             except json.JSONDecodeError as e:
                 raise Exception(f"JSON 解碼錯誤：{e}")
@@ -375,15 +420,6 @@ async def on_ready():
     print("Bot 已成功啟動！")
     print(f"已登入 Discord 帳戶：{bot.user}")
 
-    # # 發送上線通知到指定頻道
-    # try:
-    #     status_channel = bot.get_channel(STATUS_CHANNEL_ID)
-    #     if status_channel:
-    #         await status_channel.send("🤖 Bot 已上線，準備接收指令！")
-    #     else:
-    #         print(f"無法找到頻道 ID：{STATUS_CHANNEL_ID}")
-    # except Exception as e:
-    #     print(f"發送上線通知時出現錯誤：{e}")
     # 發送上線通知到所有允許的頻道
     for channel_id in ALLOWED_CHANNEL_IDS:
         channel = bot.get_channel(channel_id)
@@ -407,7 +443,7 @@ async def help(ctx):
 1. **++chat <訊息>** - 與 Bot 進行對話。
 2. **++setmodel <模型名稱>** - 選擇要使用的模型。
 3. **++help** - 顯示此幫助訊息。
-4. **++clean_history** - 清除記憶歷史。
+4. **++clean_history** - 清除當前頻道的記憶歷史和檔案。
 
 📘 **可用模型**:
 - 預設模型: gemma3:27b
@@ -419,7 +455,7 @@ async def help(ctx):
 - 輸入 `++chat 你好` 與 Bot 開始對話。
 - 輸入 `++setmodel gemma3:27b` 切換到指定的模型。
 - 輸入 `++help` 查看可用指令清單。
-- 輸入 `++clean_history` 清除記憶歷史。
+- 輸入 `++clean_history` 清除當前頻道的記憶歷史和檔案。
 """
     await ctx.send(help_message)
 
@@ -432,8 +468,8 @@ async def chat(ctx, *, user_input: str):
         print(f"收到指令：{user_input}")
         thinking_message = await ctx.send(f"已收到：{user_input}，正在思考...")
 
-        # 生成 Ollama 回應
-        response, _ = process_user_input(user_input)
+        # 生成 Ollama 回應，傳入頻道 ID
+        response, _ = process_user_input(user_input, ctx.channel.id)
         response = response.strip()
         await thinking_message.delete()
 
@@ -465,13 +501,22 @@ async def setmodel(ctx, model_name: str):
 @bot.command()
 @commands.check(is_in_allowed_channel)
 async def clean_history(ctx):
-    """清除記憶歷史和下載的檔案"""
+    """清除頻道的記憶歷史和下載的檔案"""
     global memory
     
     # 清除記憶歷史
     memory = ConversationBufferMemory(
         max_token_limit=MODEL_MAX_TOKENS.get(current_model, 8192))
-    print("[DEBUG] 記憶歷史已清除")
+    print(f"[DEBUG] 頻道 {ctx.channel.id} 的記憶歷史已清除")
+    
+    # 清除歷史記憶文件
+    history_file_path = os.path.join(str(ctx.channel.id), "history.json")
+    if os.path.exists(history_file_path):
+        try:
+            os.unlink(history_file_path)
+            print(f"[DEBUG] 已刪除記憶歷史文件: {history_file_path}")
+        except Exception as e:
+            print(f"[ERROR] 刪除記憶歷史文件時出錯 {history_file_path}: {e}")
     
     # 清除 userFile 目錄中的所有檔案
     try:
@@ -485,11 +530,11 @@ async def clean_history(ctx):
                         print(f"[DEBUG] 已刪除檔案: {file_path}")
                 except Exception as e:
                     print(f"[ERROR] 刪除檔案時出錯 {file_path}: {e}")
-            print("[DEBUG] userFile 目錄已清空")
+            print(f"[DEBUG] 頻道 {ctx.channel.id} 的檔案目錄已清空")
     except Exception as e:
-        print(f"[ERROR] 清理 userFile 目錄時出錯: {e}")
+        print(f"[ERROR] 清理頻道 {ctx.channel.id} 的檔案目錄時出錯: {e}")
     
-    await ctx.send("記憶歷史和下載的檔案已成功清除！")
+    await ctx.send(f"頻道 {ctx.channel.name} 的記憶歷史和下載的檔案已成功清除！")
 
 
 
@@ -498,6 +543,9 @@ async def stream_response(user_input, channel_id):
     """
     使用流式請求從 Ollama API 取得部分回應，並每兩秒 yield 當前累積內容
     """
+    # 加載頻道特定的記憶
+    load_history_from_file(channel_id)
+    
     # 整合上下文記憶
     context = memory.load_memory_variables({})
     current_tokens = len(context.get("history", "").split())  # 簡單估算token數
@@ -505,7 +553,7 @@ async def stream_response(user_input, channel_id):
     # 如果超過最大限制的80%，觸發裁減
     if current_tokens > MODEL_MAX_TOKENS[current_model] * 0.8:
         print(f"[DEBUG] 當前token數（約{current_tokens}）超過限制的80%，觸發裁減")
-        trim_memory_with_ollama()
+        trim_memory_with_ollama(channel_id)
         # 重新載入裁減後的上下文
         context = memory.load_memory_variables({})
 
@@ -657,7 +705,7 @@ async def on_message(message):
             # 回應全部取得完畢後，記錄回應歷史
             memory.save_context({"input": user_input}, {"output": final_response})
             print("[DEBUG] Full response processed:", final_response)
-            save_history_to_file()  # 保存記憶歷史
+            save_history_to_file(message.channel.id)  # 保存頻道特定的記憶歷史
         except Exception as e:
             # 發生錯誤時更新最後一則訊息
             await thinking_messages[-1].edit(content=f"❗️ 發生錯誤：{e}")
