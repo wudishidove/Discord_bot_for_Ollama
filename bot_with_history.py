@@ -190,10 +190,21 @@ def process_user_input(user_input):
 
 def handle_file_upload(filepath):
     """處理文件上傳，並返回文件內容"""
-    global file_contents
     try:
         ext = os.path.splitext(filepath)[1].lower()
         channel_id = os.path.dirname(filepath)  # 獲取頻道 ID
+        
+        # 讀取或初始化頻道的文件內容
+        file_contents_path = os.path.join(channel_id, 'file_contents.json')
+        try:
+            if os.path.exists(file_contents_path):
+                with open(file_contents_path, 'r', encoding='utf-8') as f:
+                    channel_file_contents = json.load(f)
+            else:
+                channel_file_contents = []
+        except Exception as e:
+            print(f"[ERROR] 讀取文件內容列表時出錯: {e}")
+            channel_file_contents = []
         
         # 處理圖片檔案
         if ext in ('.png', '.jpg', '.jpeg', '.gif', '.bmp'):
@@ -244,8 +255,14 @@ def handle_file_upload(filepath):
         else:
             file_content = read_file_content(filepath)
             if file_content != "[Unsupported file type]":
-                file_contents.append(f"檔案名稱: {filepath}\n檔案內容: {file_content}")
-                print(f"[DEBUG] 已讀取檔案內容: {filepath}")
+                # 添加新的文件內容
+                channel_file_contents.append(f"檔案名稱: {filepath}\n檔案內容: {file_content}")
+                
+                # 保存更新後的文件內容列表
+                with open(file_contents_path, 'w', encoding='utf-8') as f:
+                    json.dump(channel_file_contents, f, ensure_ascii=False, indent=4)
+                
+                print(f"[DEBUG] 已保存文件內容到: {file_contents_path}")
                 return True
             else:
                 print(f"[WARNING] 不支援的檔案類型: {filepath}")
@@ -449,10 +466,7 @@ async def setmodel(ctx, model_name: str):
 @commands.check(is_in_allowed_channel)
 async def clean_history(ctx):
     """清除記憶歷史和下載的檔案"""
-    global memory,  file_contents
-    
-    # 清空列表
-    file_contents = []
+    global memory
     
     # 清除記憶歷史
     memory = ConversationBufferMemory(
@@ -551,9 +565,6 @@ async def stream_response(user_input, channel_id):
 
 @bot.event
 async def on_message(message):
-    global file_contents
-
-
     # 忽略自己與非允許頻道訊息
     if message.author == bot.user or message.channel.id not in ALLOWED_CHANNEL_IDS:
         return
@@ -590,7 +601,6 @@ async def on_message(message):
             except Exception as e:
                 print(f"[ERROR] 讀取檔案錯誤: {e}")
                 processing_results.append(f"❌ 檔案 `{attachment.filename}` 處理出錯: {str(e)}")
-                file_contents.append(f"檔案名稱: {attachment.filename}\n無法讀取檔案內容: {e}")
 
         # 更新處理訊息，顯示所有檔案的處理結果
         result_message = "📋 檔案處理結果：\n" + "\n".join(processing_results)
@@ -601,13 +611,23 @@ async def on_message(message):
         image_idle_check(message.channel.id)
         user_input = message.content.replace(bot.user.mention, "").strip()
         
+        # 讀取頻道的文件內容
+        file_contents_path = os.path.join(str(message.channel.id), 'file_contents.json')
+        channel_file_contents = []
+        if os.path.exists(file_contents_path):
+            try:
+                with open(file_contents_path, 'r', encoding='utf-8') as f:
+                    channel_file_contents = json.load(f)
+            except Exception as e:
+                print(f"[ERROR] 讀取文件內容列表時出錯: {e}")
+        
         # 如果有檔案，將檔案內容加入到用戶輸入中
-        if file_contents:
-            file_content_text = "\n\n".join(file_contents)
+        if channel_file_contents:
+            file_content_text = "\n\n".join(channel_file_contents)
             user_input = f"{user_input}\n\n用戶上傳的檔案：\n{file_content_text}"
             print(f"[DEBUG] 已讀取檔案內容+使用者問題: {user_input}")
         
-        if not user_input and not file_contents:
+        if not user_input and not channel_file_contents:
             return
         
         # 先發送一則初始訊息，並用一個列表保存所有訊息（後續依序更新）
