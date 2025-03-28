@@ -33,8 +33,6 @@ memory = ConversationBufferMemory(
     max_token_limit=128000)  # 默認為 phi4 的最大 token 限制
 # 紀錄下載的檔案內容
 file_contents = []
-image_contents = []
-image_idle_count = 0
 # 載入配置文件
 with open("config.json", "r") as config_file:
     config = json.load(config_file)
@@ -193,20 +191,51 @@ def process_user_input(user_input):
 def handle_file_upload(filepath):
     """處理文件上傳，並返回文件內容"""
     global file_contents
-    global image_contents
-    global image_idle_count
     try:
         ext = os.path.splitext(filepath)[1].lower()
+        channel_id = os.path.dirname(filepath)  # 獲取頻道 ID
         
         # 處理圖片檔案
         if ext in ('.png', '.jpg', '.jpeg', '.gif', '.bmp'):
             try:
-                image_idle_count = 0
                 img_content = image_to_base64(filepath)
                 if img_content:
-                    image_contents.append(img_content)
-                    print(f"[DEBUG] 已讀取圖片內容: {filepath}")
-                return True
+                    # 保存 base64 圖片列表到頻道資料夾
+                    base64_file_path = os.path.join(channel_id, 'image_base64_list.json')
+                    try:
+                        # 讀取現有的 base64 列表（如果存在）
+                        if os.path.exists(base64_file_path):
+                            with open(base64_file_path, 'r', encoding='utf-8') as f:
+                                data = json.load(f)
+                                existing_data = data.get('images', [])
+                                idle_count = data.get('idle_count', 0)
+                        else:
+                            existing_data = []
+                            idle_count = 0
+                        
+                        # 重置 idle count 因為有新圖片
+                        idle_count = 0
+                        
+                        # 添加新的 base64 圖片
+                        image_data = {
+                            'filename': os.path.basename(filepath),
+                            'base64_content': img_content,
+                            'timestamp': time.time()
+                        }
+                        existing_data.append(image_data)
+                        
+                        # 保存更新後的列表和 idle count
+                        with open(base64_file_path, 'w', encoding='utf-8') as f:
+                            json.dump({
+                                'images': existing_data,
+                                'idle_count': idle_count
+                            }, f, ensure_ascii=False, indent=4)
+                        
+                        print(f"[DEBUG] 已保存 base64 圖片到: {base64_file_path}")
+                    except Exception as e:
+                        print(f"[ERROR] 保存 base64 圖片列表時出錯: {e}")
+                    
+                    return True
             except Exception as e:
                 print(f"[ERROR] 圖片處理錯誤: {e}")
                 return False
@@ -226,40 +255,55 @@ def handle_file_upload(filepath):
         print(f"[ERROR] 檔案處理錯誤: {e}")
         return False
 
-def image_idle_check():
+def image_idle_check(channel_id):
     """檢查並管理圖片快取
     - 每次被提及時增加閒置計數
     - 當圖片超過最大數量或閒置次數過多時清理
     - 清理時優先清理最舊的圖片
     """
-    global image_idle_count
-    global image_contents
-    
     # 設定最大圖片數量和最大閒置次數
     MAX_IMAGES = 10
     MAX_IDLE_COUNT = 20
     
-    # 增加閒置計數
-    image_idle_count += 1
-    
     try:
-        # 檢查閒置次數
-        if image_idle_count > MAX_IDLE_COUNT:
-            if image_contents:
-                image_contents.pop(0)  # 移除最舊的圖片
-                print("[DEBUG] 太久沒用，已移除最舊的圖片")
-                print(f"[DEBUG] 當前快取圖片數量: {len(image_contents)}, 閒置次數: {image_idle_count}")
+        base64_file_path = os.path.join(str(channel_id), 'image_base64_list.json')
+        if os.path.exists(base64_file_path):
+            with open(base64_file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                image_data_list = data.get('images', [])
+                idle_count = data.get('idle_count', 0)
             
-        # 檢查圖片數量是否超過限制
-        while len(image_contents) > MAX_IMAGES:
-            image_contents.pop(0)  # 移除最舊的圖片
-            print("[DEBUG] 圖片數量超過限制，已移除最舊的圖片")
+            # 增加閒置計數
+            idle_count += 1
+            
+            # 檢查閒置次數
+            if idle_count > MAX_IDLE_COUNT and image_data_list:
+                # 移除最舊的圖片
+                image_data_list.pop(0)
+                print("[DEBUG] 太久沒用，已移除最舊的圖片")
+                print(f"[DEBUG] 當前快取圖片數量: {len(image_data_list)}, 閒置次數: {idle_count}")
+            
+            # 檢查圖片數量是否超過限制
+            while len(image_data_list) > MAX_IMAGES:
+                image_data_list.pop(0)  # 移除最舊的圖片
+                print("[DEBUG] 圖片數量超過限制，已移除最舊的圖片")
+            
+            # 保存更新後的列表和 idle count
+            with open(base64_file_path, 'w', encoding='utf-8') as f:
+                json.dump({
+                    'images': image_data_list,
+                    'idle_count': idle_count
+                }, f, ensure_ascii=False, indent=4)
             
     except Exception as e:
         print(f"[ERROR] 圖片快取管理錯誤: {e}")
         # 發生錯誤時重置狀態
-        image_contents = []
-        image_idle_count = 0
+        if os.path.exists(base64_file_path):
+            with open(base64_file_path, 'w', encoding='utf-8') as f:
+                json.dump({
+                    'images': [],
+                    'idle_count': 0
+                }, f)
 
 
 def image_to_base64(image_path):
@@ -405,10 +449,9 @@ async def setmodel(ctx, model_name: str):
 @commands.check(is_in_allowed_channel)
 async def clean_history(ctx):
     """清除記憶歷史和下載的檔案"""
-    global memory, image_contents, file_contents
+    global memory,  file_contents
     
     # 清空列表
-    image_contents = []
     file_contents = []
     
     # 清除記憶歷史
@@ -437,15 +480,11 @@ async def clean_history(ctx):
 
 
 
-async def stream_response(user_input):
+async def stream_response(user_input, channel_id):
     """
     使用流式請求從 Ollama API 取得部分回應，並每兩秒 yield 當前累積內容
     """
-    global image_contents
     # 整合上下文記憶
-    # context = memory.load_memory_variables({})
-    # prompt_with_memory = context.get("history", "") + f"\nUser: {user_input}\nBot:"
-    # 檢查並可能裁減記憶
     context = memory.load_memory_variables({})
     current_tokens = len(context.get("history", "").split())  # 簡單估算token數
     
@@ -457,31 +496,36 @@ async def stream_response(user_input):
         context = memory.load_memory_variables({})
 
     prompt_with_memory = context.get("history", "") + f"\nUser: {user_input}\nBot:"
-
     print("[DEBUG] Prompt sent to Ollama API:", prompt_with_memory)
     
     full_prompt = f"如我用繁體中文問問題，也請你用繁體中文回答，並不使用任何特殊字符和表情：{prompt_with_memory}"
     
+    # 從 JSON 檔案讀取圖片列表
+    base64_images = []
+    base64_file_path = os.path.join(str(channel_id), 'image_base64_list.json')
+    if os.path.exists(base64_file_path):
+        try:
+            with open(base64_file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                image_data_list = data.get('images', [])
+                base64_images = [item['base64_content'] for item in image_data_list]
+                print(f"[DEBUG] 已從 {base64_file_path} 讀取 {len(base64_images)} 張圖片")
+        except Exception as e:
+            print(f"[ERROR] 讀取圖片列表時出錯: {e}")
+    
     # 使用 requests 的 stream 模式 (run_in_executor 避免阻塞)
     loop = asyncio.get_event_loop()
-    # response = await loop.run_in_executor(
-    #     None,
-    #     lambda: requests.post(
-    #         OLLAMA_API_URL,
-    #         json={"model": current_model, "prompt": full_prompt},
-    #         headers={"Content-Type": "application/json"},
-    #         stream=True
-    #     )
-    # )
     response = await loop.run_in_executor(
         None,
         lambda: requests.post(
             OLLAMA_API_URL,
-            json={"model": current_model, "prompt": full_prompt,
-             "images": image_contents,
-             "stream": True},
+            json={
+                "model": current_model,
+                "prompt": full_prompt,
+                "images": base64_images,
+                "stream": True
+            },
             headers={"Content-Type": "application/json"},
-            
         )
     )
     
@@ -495,7 +539,7 @@ async def stream_response(user_input):
                 data = json.loads(line)
                 new_text = data.get("response", "")
                 buffer += new_text
-                # 每2秒 yield 當前累積結果
+                # 每0.5秒 yield 當前累積結果
                 if time.time() - last_update >= 0.5:
                     yield buffer
                     last_update = time.time()
@@ -508,7 +552,7 @@ async def stream_response(user_input):
 @bot.event
 async def on_message(message):
     global file_contents
-    global image_contents
+
 
     # 忽略自己與非允許頻道訊息
     if message.author == bot.user or message.channel.id not in ALLOWED_CHANNEL_IDS:
@@ -554,7 +598,7 @@ async def on_message(message):
 
     # 當訊息提及 Bot 時
     if bot.user.mentioned_in(message):
-        image_idle_check()
+        image_idle_check(message.channel.id)
         user_input = message.content.replace(bot.user.mention, "").strip()
         
         # 如果有檔案，將檔案內容加入到用戶輸入中
@@ -573,7 +617,7 @@ async def on_message(message):
         final_response = ""  # 儲存最終完整回應
         try:
             # 非同步迭代器取得逐步更新的回應
-            async for partial in stream_response(user_input):
+            async for partial in stream_response(user_input, message.channel.id):
                 final_response = partial  # 更新最新累積回應
                 # 將累積的回應切割為多個不超過2000字的段落
                 segments = [partial[i:i+2000] for i in range(0, len(partial), 2000)]
@@ -588,7 +632,7 @@ async def on_message(message):
                         # 發送新訊息
                         new_msg = await message.channel.send(seg)
                         thinking_messages.append(new_msg)
-                # 等待2秒再處理下一次更新（stream_response 中已控制時間，但可額外 sleep 以確保平滑更新）
+                # 等待0.1秒再處理下一次更新
                 await asyncio.sleep(0.1)
             # 回應全部取得完畢後，記錄回應歷史
             memory.save_context({"input": user_input}, {"output": final_response})
