@@ -9,6 +9,9 @@ import os
 import base64
 from PIL import Image
 from io import BytesIO
+# 導入 PDF 轉換函數
+from to_html import convert_pdf_to_html
+import pypdfium2
 
 # 模型對應的最大 token 限制
 MODEL_MAX_TOKENS = {
@@ -44,8 +47,7 @@ OLLAMA_API_URL = "http://localhost:11434/api/generate"
 
 # 指定上線訊息的頻道 ID
 STATUS_CHANNEL_ID = 1073495605286027267  # 替換為你的頻道 ID
-ALLOWED_CHANNEL_IDS =[1073495605286027267,
-                    1355015638979969097] 
+ALLOWED_CHANNEL_IDS = config["ALLOWED_CHANNEL_IDS"]
 
 # 初始化 Bot
 intents = discord.Intents.default()
@@ -237,15 +239,26 @@ def handle_file_upload(filepath):
     """處理文件上傳，並返回文件內容"""
     try:
         ext = os.path.splitext(filepath)[1].lower()
-        channel_id = os.path.dirname(filepath)  # 獲取頻道 ID
+        # 使用絕對路徑來獲取頻道 ID 和文件目錄
+        abs_filepath = os.path.abspath(filepath)
+        channel_dir = os.path.dirname(abs_filepath) # 獲取頻道目錄的絕對路徑
+        channel_id = os.path.basename(channel_dir) # 假設頻道目錄名稱就是頻道 ID
         
-        # 讀取或初始化頻道的文件內容
-        file_contents_path = os.path.join(channel_id, 'file_contents.json')
+        print(f"[DEBUG] 處理文件 (絕對路徑): {abs_filepath}")
+        print(f"[DEBUG] 文件類型: {ext}")
+        print(f"[DEBUG] 頻道目錄 (絕對路徑): {channel_dir}")
+        print(f"[DEBUG] 頻道 ID: {channel_id}")
+        
+        # 讀取或初始化頻道的文件內容 (使用絕對路徑)
+        file_contents_path = os.path.join(channel_dir, 'file_contents.json')
+        
         try:
             if os.path.exists(file_contents_path):
+                print(f"[DEBUG] 發現現有的 file_contents.json")
                 with open(file_contents_path, 'r', encoding='utf-8') as f:
                     channel_file_contents = json.load(f)
             else:
+                print(f"[DEBUG] 未找到 file_contents.json，將創建新的")
                 channel_file_contents = []
         except Exception as e:
             print(f"[ERROR] 讀取文件內容列表時出錯: {e}")
@@ -254,10 +267,10 @@ def handle_file_upload(filepath):
         # 處理圖片檔案
         if ext in ('.png', '.jpg', '.jpeg', '.gif', '.bmp'):
             try:
-                img_content = image_to_base64(filepath)
+                img_content = image_to_base64(abs_filepath) # 使用絕對路徑
                 if img_content:
-                    # 保存 base64 圖片列表到頻道資料夾
-                    base64_file_path = os.path.join(channel_id, 'image_base64_list.json')
+                    # 保存 base64 圖片列表到頻道資料夾 (使用絕對路徑)
+                    base64_file_path = os.path.join(channel_dir, 'image_base64_list.json')
                     try:
                         # 讀取現有的 base64 列表（如果存在）
                         if os.path.exists(base64_file_path):
@@ -274,7 +287,7 @@ def handle_file_upload(filepath):
                         
                         # 添加新的 base64 圖片
                         image_data = {
-                            'filename': os.path.basename(filepath),
+                            'filename': os.path.basename(abs_filepath),
                             'base64_content': img_content,
                             'timestamp': time.time()
                         }
@@ -298,16 +311,23 @@ def handle_file_upload(filepath):
         
         # 處理文字檔案
         else:
-            file_content = read_file_content(filepath)
+            file_content = read_file_content(abs_filepath) # 使用絕對路徑
+            print(f"[DEBUG] 讀取到的文件內容: {file_content[:200]}...")  # 只打印前200個字符
+            
             if file_content != "[Unsupported file type]":
                 # 添加新的文件內容
-                channel_file_contents.append(f"檔案名稱: {filepath}\n檔案內容: {file_content}")
+                # 使用絕對路徑記錄檔案名稱
+                new_content = f"檔案名稱: {abs_filepath}\n檔案內容: {file_content}"
+                channel_file_contents.append(new_content)
                 
                 # 保存更新後的文件內容列表
-                with open(file_contents_path, 'w', encoding='utf-8') as f:
-                    json.dump(channel_file_contents, f, ensure_ascii=False, indent=4)
-                
-                print(f"[DEBUG] 已保存文件內容到: {file_contents_path}")
+                try:
+                    with open(file_contents_path, 'w', encoding='utf-8') as f:
+                        json.dump(channel_file_contents, f, ensure_ascii=False, indent=4)
+                    print(f"[DEBUG] 成功寫入 file_contents.json")
+                except Exception as e:
+                    print(f"[ERROR] 寫入 file_contents.json 時出錯: {e}")
+                    return False
                 return True
             else:
                 print(f"[WARNING] 不支援的檔案類型: {filepath}")
@@ -401,11 +421,63 @@ def read_file_content(filepath):
             with open(filepath, 'r', encoding='utf-8') as f:
                 content = f.read()
                 return content if content.strip() else "[Empty file]"
-        # 在這裡可以添加其他文件類型的支持
-        # elif ext == '.pdf':
-        #     ...
-        # elif ext == '.docx':
-        #     ...
+        elif ext == '.pdf':
+            # 確保 PDF 文件路徑是絕對路徑
+            pdf_filepath = os.path.abspath(filepath)
+            
+            # # fitz打開 PDF 文件
+            # doc = fitz.open(pdf_filepath)
+            # full_text = ""
+            # for page in doc:
+            #     # 使用 get_text("text") 取得基本文字，"html" 模式可保留部分排版資訊
+            #     # text = page.get_text("html")
+            #     text = page.get_text("text")
+            #     full_text += text + "\n"
+
+            # pypdfium2打開 PDF 文件
+            pdf = pypdfium2.PdfDocument(pdf_filepath)
+            full_text = ""
+            # 逐頁提取文字
+            for page_number in range(len(pdf)):
+                page = pdf.get_page(page_number)
+                # 使用 get_textpage() 方法獲得一個文字頁對象
+                textpage = page.get_textpage()
+                # 使用 get_text_range() 獲取整個頁面的文字
+                text = textpage.get_text_range()
+                full_text+=f"Page {page_number + 1} text:\n{text}\n"
+                # 釋放該頁面的文字資源
+                textpage.close()
+                page.close()
+
+            # 關閉 PDF 文件
+            pdf.close()
+            return full_text if full_text.strip() else "[Empty file]"
+            # # 獲取 PDF 文件所在的頻道目錄
+            # channel_dir = os.path.dirname(pdf_filepath)
+            
+            # # 設定輸出的 HTML 文件的絕對路徑
+            # html_filename = os.path.splitext(os.path.basename(pdf_filepath))[0] + '.html'
+            # html_filepath = os.path.abspath(os.path.join(channel_dir, html_filename))
+            
+            # print("debug, pdf_filepath:", pdf_filepath)
+            # print("debug, html_filepath:", html_filepath)
+            
+            # # 轉換 PDF 到 HTML
+            # if convert_pdf_to_html(pdf_filepath, html_filepath):
+            #     # 如果轉換成功,讀取 HTML 內容
+            #     try:
+            #         with open(html_filepath, 'r', encoding='utf-8') as f:
+            #             content = f.read()
+            #         # 刪除生成的 HTML 文件
+            #         # try:
+            #         #     os.remove(html_filepath)
+            #         # except:
+            #         #     pass
+            #         return content
+            #     except Exception as e:
+            #         return f"[Error reading converted HTML file: {str(e)}]"
+            # else:
+            #     return "[PDF conversion failed]"
         else:
             return "[Unsupported file type]"
     except UnicodeDecodeError:
