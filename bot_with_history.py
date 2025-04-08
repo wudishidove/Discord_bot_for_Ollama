@@ -9,9 +9,11 @@ import os
 import base64
 from PIL import Image
 from io import BytesIO
+import re
 # 導入 PDF 轉換函數
 from to_html import convert_pdf_to_html
-import pypdfium2
+import pymupdf4llm
+import pymupdf.pro
 
 # 模型對應的最大 token 限制
 MODEL_MAX_TOKENS = {
@@ -411,6 +413,26 @@ def image_to_base64(image_path):
     except Exception as e:
         print(f"[ERROR] 圖片轉換錯誤 {image_path}: {e}")
         return None
+def read_pdf_content(filepath):
+    # 讓 to_markdown() 回傳每一頁的結構化資料，並提取圖片
+    chunks = pymupdf4llm.to_markdown(
+        doc= filepath,
+        write_images=True,
+        image_format='jpg',
+        image_path="images",
+        page_chunks=True
+    )
+
+    # 取得所有頁面中圖片的檔案名稱
+    pdf_text=''
+    image_filenames = []
+    for page in chunks:
+        pdf_text += f'page {page["metadata"]["page"]}:\n'
+        pdf_text += f'{page["text"]}'
+    # 利用正則表達式抓取所有符合 Markdown 圖片語法的部分
+    image_filenames = re.findall(r'!\[\]\((images/[^)]+\.jpg)\)', pdf_text)
+
+    return pdf_text, image_filenames
 
 def read_file_content(filepath):
     """讀取文件內容"""
@@ -425,33 +447,11 @@ def read_file_content(filepath):
             # 確保 PDF 文件路徑是絕對路徑
             pdf_filepath = os.path.abspath(filepath)
             
-            # # fitz打開 PDF 文件
-            # doc = fitz.open(pdf_filepath)
-            # full_text = ""
-            # for page in doc:
-            #     # 使用 get_text("text") 取得基本文字，"html" 模式可保留部分排版資訊
-            #     # text = page.get_text("html")
-            #     text = page.get_text("text")
-            #     full_text += text + "\n"
+            # PDF to markdown基礎轉換
+            # md_text = pymupdf4llm.to_markdown(pdf_filepath)
+            md_text, image_filenames = read_pdf_content(pdf_filepath)
+            return md_text if md_text.strip() else "[Empty file]"
 
-            # pypdfium2打開 PDF 文件
-            pdf = pypdfium2.PdfDocument(pdf_filepath)
-            full_text = ""
-            # 逐頁提取文字
-            for page_number in range(len(pdf)):
-                page = pdf.get_page(page_number)
-                # 使用 get_textpage() 方法獲得一個文字頁對象
-                textpage = page.get_textpage()
-                # 使用 get_text_range() 獲取整個頁面的文字
-                text = textpage.get_text_range()
-                full_text+=f"Page {page_number + 1} text:\n{text}\n"
-                # 釋放該頁面的文字資源
-                textpage.close()
-                page.close()
-
-            # 關閉 PDF 文件
-            pdf.close()
-            return full_text if full_text.strip() else "[Empty file]"
             # # 獲取 PDF 文件所在的頻道目錄
             # channel_dir = os.path.dirname(pdf_filepath)
             
@@ -523,6 +523,7 @@ async def help(ctx):
 - gemma3:27b    回答速度慢，能力較好，圖片理解強(自帶英文OCR)
 - gemma3:nsfw2  NSFW魔改版,有時候會胡言亂語
 - deepseek-r1:32b 高等複雜度 會輸出推理(思考)過程
+- 
 🎯 **使用方式**:
 - 輸入 `++chat 你好` 與 Bot 開始對話。
 - 輸入 `++setmodel gemma3:27b` 切換到指定的模型。
@@ -630,10 +631,11 @@ async def stream_response(user_input, channel_id):
         context = memory.load_memory_variables({})
 
     prompt_with_memory = context.get("history", "") + f"\nUser: {user_input}\nBot:"
-    print("[DEBUG] Prompt sent to Ollama API:", prompt_with_memory)
     
-    full_prompt = f"如我用繁體中文問問題，也請你用繁體中文回答，並不使用任何特殊字符和表情：{prompt_with_memory}"
     
+    full_prompt = f"""如我用繁體中文問問題，也請你用繁體中文，且老實回答(不知道就老實說不知道，
+    除非我特別請你天馬行空發揮創意)，並不使用任何特殊字符和表情，下面開始是我的問題。{prompt_with_memory}"""
+    print("[DEBUG] Prompt sent to Ollama API:", full_prompt)
     # 從 JSON 檔案讀取圖片列表
     base64_images = []
     base64_file_path = os.path.join(str(channel_id), 'image_base64_list.json')
