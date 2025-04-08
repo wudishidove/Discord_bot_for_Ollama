@@ -35,7 +35,9 @@ MODEL_MAX_TOKENS = {
 
 # 初始化記憶功能（臨時使用，每次對話前都會重新加載頻道特定的記憶）
 memory = ConversationBufferMemory(
-    max_token_limit=128000)  # 默認為 phi4 的最大 token 限制
+    memory_key="history",
+    return_messages=False,
+    max_len=128000)  # 默認為 phi4 的最大 token 限制
 # 紀錄下載的檔案內容
 file_contents = []
 # 載入配置文件
@@ -70,7 +72,10 @@ def update_memory_limit():
     global memory
     max_tokens = MODEL_MAX_TOKENS.get(current_model, 8192)  # 默認為 8192
     # 只更新 token 限制，不會清除任何記憶內容
-    memory.max_token_limit = max_tokens
+    memory = ConversationBufferMemory(
+        memory_key="history",
+        return_messages=False,
+        max_len=max_tokens)
     print(f"[DEBUG] 記憶最大 token 限制更新為: {max_tokens}")
 
 
