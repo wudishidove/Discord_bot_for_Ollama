@@ -277,44 +277,15 @@ def handle_file_upload(filepath):
         # 處理圖片檔案
         if ext in ('.png', '.jpg', '.jpeg', '.gif', '.bmp'):
             try:
-                img_content = image_to_base64(abs_filepath) # 使用絕對路徑
-                if img_content:
-                    # 保存 base64 圖片列表到頻道資料夾 (使用絕對路徑)
-                    base64_file_path = os.path.join(channel_dir, 'image_base64_list.json')
-                    try:
-                        # 讀取現有的 base64 列表（如果存在）
-                        if os.path.exists(base64_file_path):
-                            with open(base64_file_path, 'r', encoding='utf-8') as f:
-                                data = json.load(f)
-                                existing_data = data.get('images', [])
-                                idle_count = data.get('idle_count', 0)
-                        else:
-                            existing_data = []
-                            idle_count = 0
-                        
-                        # 重置 idle count 因為有新圖片
-                        idle_count = 0
-                        
-                        # 添加新的 base64 圖片
-                        image_data = {
-                            'filename': os.path.basename(abs_filepath),
-                            'base64_content': img_content,
-                            'timestamp': time.time()
-                        }
-                        existing_data.append(image_data)
-                        
-                        # 保存更新後的列表和 idle count
-                        with open(base64_file_path, 'w', encoding='utf-8') as f:
-                            json.dump({
-                                'images': existing_data,
-                                'idle_count': idle_count
-                            }, f, ensure_ascii=False, indent=4)
-                        
-                        print(f"[DEBUG] 已保存 base64 圖片到: {base64_file_path}")
-                    except Exception as e:
-                        print(f"[ERROR] 保存 base64 圖片列表時出錯: {e}")
-                    
-                    return True
+                # 重置閒置計數
+                idle_count_path = os.path.join(channel_dir, 'idle_count.json')
+                try:
+                    with open(idle_count_path, 'w', encoding='utf-8') as f:
+                        json.dump({'idle_count': 0}, f, ensure_ascii=False, indent=4)
+                    print(f"[DEBUG] 已重置閒置計數")
+                except Exception as e:
+                    print(f"[ERROR] 重置閒置計數時出錯: {e}")
+                return True
             except Exception as e:
                 print(f"[ERROR] 圖片處理錯誤: {e}")
                 return False
@@ -355,72 +326,85 @@ def image_idle_check(channel_id):
     """
     # 設定最大圖片數量和最大閒置次數
     MAX_IMAGES = 10
-    MAX_IDLE_COUNT = 20
+    MAX_IDLE_COUNT = 10
     
     try:
-        base64_file_path = os.path.join(str(channel_id), 'image_base64_list.json')
-        if os.path.exists(base64_file_path):
-            with open(base64_file_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                image_data_list = data.get('images', [])
-                idle_count = data.get('idle_count', 0)
-            
-            # 增加閒置計數
-            idle_count += 1
-            
-            # 檢查閒置次數
-            if idle_count > MAX_IDLE_COUNT and image_data_list:
-                # 移除最舊的圖片
-                image_data_list.pop(0)
-                print("[DEBUG] 太久沒用，已移除最舊的圖片")
-                print(f"[DEBUG] 當前快取圖片數量: {len(image_data_list)}, 閒置次數: {idle_count}")
-            
-            # 檢查圖片數量是否超過限制
-            while len(image_data_list) > MAX_IMAGES:
-                image_data_list.pop(0)  # 移除最舊的圖片
-                print("[DEBUG] 圖片數量超過限制，已移除最舊的圖片")
-            
-            # 保存更新後的列表和 idle count
-            with open(base64_file_path, 'w', encoding='utf-8') as f:
-                json.dump({
-                    'images': image_data_list,
-                    'idle_count': idle_count
-                }, f, ensure_ascii=False, indent=4)
+        # 讀取或初始化閒置計數
+        idle_count_path = os.path.join(str(channel_id), 'idle_count.json')
+        if os.path.exists(idle_count_path):
+            with open(idle_count_path, 'r', encoding='utf-8') as f:
+                idle_count = json.load(f).get('idle_count', 0)
+        else:
+            idle_count = 0
+        
+        # 增加閒置計數
+        idle_count += 1
+        
+        # 獲取所有圖片檔案
+        image_dir = str(channel_id)
+        image_files = []
+        for ext in ['.png', '.jpg', '.jpeg', '.gif', '.bmp']:
+            image_files.extend(glob.glob(os.path.join(image_dir, f"*{ext}")))
+            image_files.extend(glob.glob(os.path.join(image_dir, f"*{ext.upper()}")))
+        
+        # 根據修改時間排序圖片（最舊的在前）
+        image_files.sort(key=lambda x: os.path.getmtime(x))
+        
+        # 檢查閒置次數
+        if idle_count > MAX_IDLE_COUNT and image_files:
+            # 移除最舊的圖片
+            try:
+                os.remove(image_files[0])
+                print(f"[DEBUG] 太久沒用，已移除最舊的圖片: {image_files[0]}")
+                image_files.pop(0)  # 從列表中移除
+            except Exception as e:
+                print(f"[ERROR] 刪除閒置圖片時出錯: {e}")
+        
+        # 檢查圖片數量是否超過限制
+        while len(image_files) > MAX_IMAGES:
+            try:
+                os.remove(image_files[0])
+                print(f"[DEBUG] 圖片數量超過限制，已移除最舊的圖片: {image_files[0]}")
+                image_files.pop(0)
+            except Exception as e:
+                print(f"[ERROR] 刪除超量圖片時出錯: {e}")
+                break
+        
+        # 保存更新後的閒置計數
+        with open(idle_count_path, 'w', encoding='utf-8') as f:
+            json.dump({'idle_count': idle_count}, f, ensure_ascii=False, indent=4)
             
     except Exception as e:
         print(f"[ERROR] 圖片快取管理錯誤: {e}")
-        # 發生錯誤時重置狀態
-        if os.path.exists(base64_file_path):
-            with open(base64_file_path, 'w', encoding='utf-8') as f:
-                json.dump({
-                    'images': [],
-                    'idle_count': 0
-                }, f)
+        # 發生錯誤時重置閒置計數
+        if os.path.exists(idle_count_path):
+            with open(idle_count_path, 'w', encoding='utf-8') as f:
+                json.dump({'idle_count': 0}, f, ensure_ascii=False, indent=4)
 
 
-def image_to_base64(image_path):
-    """將圖片轉換為 base64 編碼"""
-    try:
-        with Image.open(image_path) as img:
-            buffered = BytesIO()
-            # 確定圖片的格式
-            image_format = img.format.lower() if img.format else 'png'
+# def image_to_base64(image_path):
+#     """將圖片轉換為 base64 編碼"""
+#     try:
+#         with Image.open(image_path) as img:
+#             buffered = BytesIO()
+#             # 確定圖片的格式
+#             image_format = img.format.lower() if img.format else 'png'
             
-            # 根據圖片格式選擇保存格式
-            save_format = {
-                'jpeg': 'JPEG',
-                'jpg': 'JPEG',
-                'gif': 'GIF',
-                'bmp': 'BMP',
-                'tiff': 'TIFF',
-                'png': 'PNG'
-            }.get(image_format, 'PNG')
+#             # 根據圖片格式選擇保存格式
+#             save_format = {
+#                 'jpeg': 'JPEG',
+#                 'jpg': 'JPEG',
+#                 'gif': 'GIF',
+#                 'bmp': 'BMP',
+#                 'tiff': 'TIFF',
+#                 'png': 'PNG'
+#             }.get(image_format, 'PNG')
             
-            img.save(buffered, format=save_format)
-            return base64.b64encode(buffered.getvalue()).decode('utf-8')
-    except Exception as e:
-        print(f"[ERROR] 圖片轉換錯誤 {image_path}: {e}")
-        return None
+#             img.save(buffered, format=save_format)
+#             return base64.b64encode(buffered.getvalue()).decode('utf-8')
+#     except Exception as e:
+#         print(f"[ERROR] 圖片轉換錯誤 {image_path}: {e}")
+#         return None
 def read_pdf_content(filepath):
     # 讓 to_markdown() 回傳每一頁的結構化資料，並提取圖片
     channel_dir = os.path.dirname(filepath) # 獲取頻道目錄的絕對路徑
@@ -510,7 +494,7 @@ async def on_ready():
         if channel:
             try:
                 pass
-                await channel.send("🤖 Bot 已上線，準備接收指令！")
+                # await channel.send("🤖 Bot 已上線，準備接收指令！")
             except Exception as e:
                 print(f"發送上線通知到頻道 {channel_id} 時出現錯誤：{e}")
         else:
