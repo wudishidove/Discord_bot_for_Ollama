@@ -10,6 +10,8 @@ import base64
 from PIL import Image
 from io import BytesIO
 import re
+import glob
+import ollama
 # 導入 PDF 轉換函數
 from to_html import convert_pdf_to_html
 import pymupdf4llm
@@ -420,11 +422,14 @@ def image_to_base64(image_path):
         return None
 def read_pdf_content(filepath):
     # 讓 to_markdown() 回傳每一頁的結構化資料，並提取圖片
+    channel_dir = os.path.dirname(filepath) # 獲取頻道目錄的絕對路徑
+    channel_id = os.path.basename(channel_dir) # 假設頻道目錄名稱就是頻道 ID
+        
     chunks = pymupdf4llm.to_markdown(
-        doc= filepath,
+        doc=filepath,
         write_images=True,
         image_format='jpg',
-        image_path="images",
+        image_path=channel_id+"/pdf_images",  # 使用相對路徑，會自動在頻道目錄下建立
         page_chunks=True
     )
 
@@ -502,7 +507,8 @@ async def on_ready():
         channel = bot.get_channel(channel_id)
         if channel:
             try:
-                await channel.send("🤖 Bot 已上線，準備接收指令！")
+                pass
+                # await channel.send("🤖 Bot 已上線，準備接收指令！")
             except Exception as e:
                 print(f"發送上線通知到頻道 {channel_id} 時出現錯誤：{e}")
         else:
@@ -637,58 +643,72 @@ async def stream_response(user_input, channel_id):
 
     prompt_with_memory = context.get("history", "") + f"\nUser: {user_input}\nBot:"
     
-    
     full_prompt = f"""如我用繁體中文問問題，也請你用繁體中文，且老實回答(不知道就老實說不知道，
     除非我特別請你天馬行空發揮創意)，並不使用任何特殊字符和表情，下面開始是我的問題。{prompt_with_memory}"""
     print("[DEBUG] Prompt sent to Ollama API:", full_prompt)
-    # 從 JSON 檔案讀取圖片列表
-    base64_images = []
-    base64_file_path = os.path.join(str(channel_id), 'image_base64_list.json')
-    if os.path.exists(base64_file_path):
-        try:
-            with open(base64_file_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                image_data_list = data.get('images', [])
-                base64_images = [item['base64_content'] for item in image_data_list]
-                print(f"[DEBUG] 已從 {base64_file_path} 讀取 {len(base64_images)} 張圖片")
-        except Exception as e:
-            print(f"[ERROR] 讀取圖片列表時出錯: {e}")
+
+    # # 從 JSON 檔案讀取圖片列表
+    # base64_images = []
+    # base64_file_path = os.path.join(str(channel_id), 'image_base64_list.json')
+    # if os.path.exists(base64_file_path):
+    #     try:
+    #         with open(base64_file_path, 'r', encoding='utf-8') as f:
+    #             data = json.load(f)
+    #             image_data_list = data.get('images', [])
+    #             base64_images = [item['base64_content'] for item in image_data_list]
+    #             print(f"[DEBUG] 已從 {base64_file_path} 讀取 {len(base64_images)} 張圖片")
+    #     except Exception as e:
+    #         print(f"[ERROR] 讀取圖片列表時出錯: {e}")
+
+    # 直接從 userFile 目錄讀取所有 .jpg 檔案
+    image_dir = str(channel_id)
+    image_set = set()
+    for ext in ['.png', '.jpg', '.jpeg', '.gif', '.bmp']:
+        image_set.update(glob.glob(os.path.join(image_dir, f"*{ext}")))
+        image_set.update(glob.glob(os.path.join(image_dir, f"*{ext.upper()}")))  # 為相容某些大小寫系統
+    image_list = sorted(image_set)
     
-    # 使用 requests 的 stream 模式 (run_in_executor 避免阻塞)
-    loop = asyncio.get_event_loop()
-    response = await loop.run_in_executor(
-        None,
-        lambda: requests.post(
-            OLLAMA_API_URL,
-            json={
-                "model": current_model,
-                "prompt": full_prompt,
-                "images": base64_images,
-                "stream": True
-            },
-            headers={"Content-Type": "application/json"},
-        )
+    #pdf img
+    pdf_image_dir = os.path.join(str(channel_id), "pdf_images")
+    if os.path.exists(pdf_image_dir):  # 確認 pdf_images 目錄存在
+        pdf_image_set = set()
+        for ext in ['.png', '.jpg', '.jpeg', '.gif', '.bmp']:
+            pdf_image_set.update(glob.glob(os.path.join(pdf_image_dir, f"*{ext}")))
+            pdf_image_set.update(glob.glob(os.path.join(pdf_image_dir, f"*{ext.upper()}")))  # 為相容某些大小寫系統
+        image_list.extend(sorted(pdf_image_set))  # 將 PDF 圖片加入主列表
+    
+    print(f"[DEBUG] 使用 {len(image_list)} 張圖片，包含一般圖片和 PDF 圖片")
+    if image_list:
+        print(f"[DEBUG] 圖片列表: {image_list}")
+    
+    # 建立 ollama client 並使用 stream 模式呼叫 chat API
+    client = ollama.Client(host="http://localhost:11434")
+    stream = client.chat(
+        model=current_model,  # 或直接指定 "gemma3:27b"
+        messages=[{
+            'role': 'user',
+            'content': full_prompt,
+            'images': image_list
+        }],
+        stream=True  # 啟用串流模式
     )
     
+    # 依據 stream 回傳的資料塊持續 yield 累積內容
     buffer = ""
-    last_update = time.time()
+    last_update_time = time.time()
+    for chunk in stream:
+        new_text = chunk['message']['content']
+        buffer += new_text
+        
+        # 檢查是否已經過了 0.5 秒
+        current_time = time.time()
+        if current_time - last_update_time >= 0.5:
+            yield buffer
+            last_update_time = current_time
     
-    # 逐行處理流式回應
-    for line in response.iter_lines(decode_unicode=True):
-        if line:
-            try:
-                data = json.loads(line)
-                new_text = data.get("response", "")
-                buffer += new_text
-                # 每0.5秒 yield 當前累積結果
-                if time.time() - last_update >= 0.5:
-                    yield buffer
-                    last_update = time.time()
-                if data.get("done", False):
-                    break
-            except json.JSONDecodeError:
-                continue
-    yield buffer
+    # 確保最後的內容也被傳送出去
+    if buffer:
+        yield buffer
 
 @bot.event
 async def on_message(message):
@@ -780,7 +800,7 @@ async def on_message(message):
                         new_msg = await message.channel.send(seg)
                         thinking_messages.append(new_msg)
                 # 等待0.1秒再處理下一次更新
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.2)
             # 回應全部取得完畢後，記錄回應歷史
             memory.save_context({"input": user_input}, {"output": final_response})
             print("[DEBUG] Full response processed:", final_response)
