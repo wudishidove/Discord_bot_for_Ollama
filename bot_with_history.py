@@ -16,6 +16,7 @@ import ollama
 from to_html import convert_pdf_to_html
 import pymupdf4llm
 import pymupdf.pro
+pymupdf.pro.unlock()
 
 # 模型對應的最大 token 限制
 MODEL_MAX_TOKENS = {
@@ -453,7 +454,8 @@ def read_file_content(filepath):
             with open(filepath, 'r', encoding='utf-8') as f:
                 content = f.read()
                 return content if content.strip() else "[Empty file]"
-        elif ext == '.pdf':
+       
+        elif ext == '.pdf'or ext == '.doc' or ext == '.docx':
             # 確保 PDF 文件路徑是絕對路徑
             pdf_filepath = os.path.abspath(filepath)
             
@@ -709,6 +711,55 @@ async def stream_response(user_input, channel_id):
     # 確保最後的內容也被傳送出去
     if buffer:
         yield buffer
+        
+    # 回答完後的清理工作
+    try:
+        # 1. 清理文字檔案內容的 JSON
+        file_contents_path = os.path.join(str(channel_id), 'file_contents.json')
+        if os.path.exists(file_contents_path):
+            try:
+                os.remove(file_contents_path)
+                print(f"[DEBUG] 已刪除處理完的文字檔案內容: {file_contents_path}")
+            except Exception as e:
+                print(f"[ERROR] 刪除文字檔案內容時出錯: {e}")
+        
+        # 2. 清理原始的文字檔案（保留圖片檔案）
+        channel_dir = str(channel_id)
+        if os.path.exists(channel_dir):
+            for filename in os.listdir(channel_dir):
+                file_path = os.path.join(channel_dir, filename)
+                # 只刪除文字檔案，保留圖片和 JSON 配置檔案
+                if os.path.isfile(file_path) and filename.lower().endswith(('.txt', '.pdf')):
+                    try:
+                        os.remove(file_path)
+                        print(f"[DEBUG] 已刪除處理完的原始文字檔案: {file_path}")
+                    except Exception as e:
+                        print(f"[ERROR] 刪除原始文字檔案時出錯 {file_path}: {e}")
+                        
+        # 3. 清理 PDF 圖片（如果存在且超過 30 分鐘）
+        pdf_image_dir = os.path.join(str(channel_id), "pdf_images")
+        if os.path.exists(pdf_image_dir):
+            current_time = time.time()
+            for filename in os.listdir(pdf_image_dir):
+                file_path = os.path.join(pdf_image_dir, filename)
+                # 檢查檔案是否超過 30 分鐘
+                if os.path.isfile(file_path) and (current_time - os.path.getmtime(file_path)) > 3600:
+                    try:
+                        os.remove(file_path)
+                        print(f"[DEBUG] 已刪除超過 30 分鐘的 PDF 圖片: {file_path}")
+                    except Exception as e:
+                        print(f"[ERROR] 刪除 PDF 圖片時出錯 {file_path}: {e}")
+            
+            # 如果 pdf_images 目錄為空，則刪除該目錄
+            if not os.listdir(pdf_image_dir):
+                try:
+                    os.rmdir(pdf_image_dir)
+                    print(f"[DEBUG] 已刪除空的 PDF 圖片目錄: {pdf_image_dir}")
+                except Exception as e:
+                    print(f"[ERROR] 刪除 PDF 圖片目錄時出錯: {e}")
+                    
+    except Exception as e:
+        print(f"[ERROR] 執行清理工作時出錯: {e}")
 
 @bot.event
 async def on_message(message):
