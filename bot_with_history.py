@@ -510,7 +510,7 @@ async def on_ready():
         if channel:
             try:
                 pass
-                # await channel.send("🤖 Bot 已上線，準備接收指令！")
+                await channel.send("🤖 Bot 已上線，準備接收指令！")
             except Exception as e:
                 print(f"發送上線通知到頻道 {channel_id} 時出現錯誤：{e}")
         else:
