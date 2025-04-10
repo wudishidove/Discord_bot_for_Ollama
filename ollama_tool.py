@@ -208,27 +208,37 @@ def google_search(query: str) -> str:
     Returns:
         A string containing search results with titles and URLs, one per line.
     """
-    # 從環境變數獲取 API 金鑰和搜尋引擎 ID
-    api_key = "AIzaSyBP6t1OG7m9qchiK62N0zeJyI93Ag4zPb0"
-    cx = "e58742a94c57240f5"
-    if not api_key or not cx:
-        return "Google API key or CX not set. Please configure the environment variables."
-    
-    # 設置最多回傳 3 個結果
-    max_results = 10
-    url = f"https://www.googleapis.com/customsearch/v1?key={api_key}&cx={cx}&q={requests.utils.requote_uri(query)}&num={max_results}"
-    
-    # 發送 API 請求
-    res = requests.get(url)
-    data = res.json()
-    results = []
-    
-    # 處理搜尋結果
-    if 'items' in data:
-        for item in data['items'][:max_results]:
-            title = item.get('title', 'No title')
-            href = item.get('link', 'No URL')
-            results.append(f"{title}: {href}")
-    
-    # 回傳結果，若無結果則回傳 "No results found."
-    return "\n".join(results) if results else "No results found."
+    try:
+        # 從 config.json 讀取 API 金鑰和搜尋引擎 ID
+        with open("config.json", "r", encoding="utf-8") as config_file:
+            config = json.load(config_file)
+            api_key = config.get("GOOGLE_API_KEY")
+            cx = config.get("GOOGLE_CX")
+            
+        if not api_key or not cx:
+            return "Google API key or CX not found in config.json. Please configure them properly."
+        
+        # 設置最多回傳 10 個結果
+        max_results = 10
+        url = f"https://www.googleapis.com/customsearch/v1?key={api_key}&cx={cx}&q={requests.utils.requote_uri(query)}&num={max_results}"
+        
+        # 發送 API 請求
+        res = requests.get(url)
+        data = res.json()
+        results = []
+        
+        # 處理搜尋結果
+        if 'items' in data:
+            for item in data['items'][:max_results]:
+                title = item.get('title', 'No title')
+                href = item.get('link', 'No URL')
+                results.append(f"{title}: {href}")
+        
+        # 回傳結果，若無結果則回傳 "No results found."
+        return "\n".join(results) if results else "No results found."
+    except FileNotFoundError:
+        return "Config file not found. Please create config.json with GOOGLE_API_KEY and GOOGLE_CX."
+    except json.JSONDecodeError:
+        return "Invalid config.json format. Please check the file format."
+    except Exception as e:
+        return f"Error occurred while searching: {str(e)}"

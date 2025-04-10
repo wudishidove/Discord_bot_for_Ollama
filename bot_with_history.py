@@ -118,7 +118,7 @@ intents.message_content = True  # 啟用訊息內容訪問
 bot = commands.Bot(command_prefix="++", intents=intents)
 
 # 儲存當前選擇的模型
-current_model = "gemma3:27b"  # 預設模型
+current_model = "mistral-small3.1"  # 預設模型
 
 
 def is_in_allowed_channel(ctx):
@@ -705,7 +705,7 @@ def handle_promt_history(context):
                         "content": ai_response
                     })
     
-    print("[DEBUG] Processed messages:", json.dumps(messages, ensure_ascii=False, indent=2))
+    
     return messages
 
 async def stream_response(user_input, channel_id):
@@ -752,7 +752,7 @@ async def stream_response(user_input, channel_id):
 
     # 添加用戶輸入
     messages.append({"role": "user", "content": user_input,"images": image_list})
-
+    print("[DEBUG] input messages:", json.dumps(messages, ensure_ascii=False, indent=2))
     # 建立 ollama client 並使用 stream 模式呼叫 chat API
     client = ollama.Client(host="http://localhost:11434")
     stream = client.chat(
@@ -917,7 +917,7 @@ async def on_message(message):
                         new_msg = await message.channel.send(seg)
                         thinking_messages.append(new_msg)
                 # 等待0.1秒再處理下一次更新
-                await asyncio.sleep(0.2)
+                await asyncio.sleep(0.5)
             # 回應全部取得完畢後，記錄回應歷史
             memory.save_context({"input": user_input}, {"output": final_response})
             print("[DEBUG] Full response processed:", final_response)
