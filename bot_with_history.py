@@ -664,7 +664,49 @@ async def clean_history(ctx):
     await ctx.send(f"頻道 {ctx.channel.name} 的記憶歷史和下載的檔案已成功清除！")
 
 
-
+def handle_promt_history(context):
+    """處理歷史對話，轉換為 messages 格式"""
+    # 初始化消息歷史
+    messages = [
+        {"role": "system", "content": """如果使用者用繁體中文問你，也請你用繁體中文回答。
+        除非我特別請你天馬行空發揮創意，否則請老實回答(不知道就老實說不知道)。
+        請不要使用任何特殊字符和表情。"""},
+    ]
+    
+    # 解析並添加歷史記憶到消息中
+    history_content = context.get("history", "")
+    if history_content:
+        # 分割歷史內容為獨立的對話回合
+        # 使用 "Human:" 作為分隔點來分割對話
+        conversations = history_content.split("Human: ")
+        
+        # 跳過第一個空元素（如果存在）
+        conversations = [conv for conv in conversations if conv.strip()]
+        
+        for conv in conversations:
+            # 分割用戶輸入和 AI 回應
+            parts = conv.split("AI: ", 1)
+            if len(parts) == 2:
+                user_input, ai_response = parts
+                
+                # 清理並添加用戶訊息
+                user_input = user_input.strip()
+                if user_input:
+                    messages.append({
+                        "role": "user",
+                        "content": user_input
+                    })
+                
+                # 清理並添加 AI 回應
+                ai_response = ai_response.strip()
+                if ai_response:
+                    messages.append({
+                        "role": "assistant",
+                        "content": ai_response
+                    })
+    
+    print("[DEBUG] Processed messages:", json.dumps(messages, ensure_ascii=False, indent=2))
+    return messages
 
 async def stream_response(user_input, channel_id):
     """
@@ -684,24 +726,8 @@ async def stream_response(user_input, channel_id):
         # 重新載入裁減後的上下文
         context = memory.load_memory_variables({})
 
-    prompt_with_memory = context.get("history", "") + f"\nUser: {user_input}\nBot:"
-    
-    full_prompt = f"""如我用繁體中文問問題，也請你用繁體中文，且老實回答(不知道就老實說不知道，
-    除非我特別請你天馬行空發揮創意)，並不使用任何特殊字符和表情，下面開始是我的問題。{prompt_with_memory}"""
-    print("[DEBUG] Prompt sent to Ollama API:", full_prompt)
-
-    # # 從 JSON 檔案讀取圖片列表
-    # base64_images = []
-    # base64_file_path = os.path.join(str(channel_id), 'image_base64_list.json')
-    # if os.path.exists(base64_file_path):
-    #     try:
-    #         with open(base64_file_path, 'r', encoding='utf-8') as f:
-    #             data = json.load(f)
-    #             image_data_list = data.get('images', [])
-    #             base64_images = [item['base64_content'] for item in image_data_list]
-    #             print(f"[DEBUG] 已從 {base64_file_path} 讀取 {len(base64_images)} 張圖片")
-    #     except Exception as e:
-    #         print(f"[ERROR] 讀取圖片列表時出錯: {e}")
+    # 添加歷史記憶到消息中
+    messages = handle_promt_history(context)
 
     # 直接從 userFile 目錄讀取所有 .jpg 檔案
     image_dir = str(channel_id)
@@ -723,16 +749,15 @@ async def stream_response(user_input, channel_id):
     print(f"[DEBUG] 使用 {len(image_list)} 張圖片，包含一般圖片和 PDF 圖片")
     if image_list:
         print(f"[DEBUG] 圖片列表: {image_list}")
-    
+
+    # 添加用戶輸入
+    messages.append({"role": "user", "content": user_input,"images": image_list})
+
     # 建立 ollama client 並使用 stream 模式呼叫 chat API
     client = ollama.Client(host="http://localhost:11434")
     stream = client.chat(
-        model=current_model,  # 或直接指定 "gemma3:27b"
-        messages=[{
-            'role': 'user',
-            'content': full_prompt,
-            'images': image_list
-        }],
+        model=current_model,
+        messages=messages,
         stream=True  # 啟用串流模式
     )
     
@@ -787,7 +812,7 @@ async def stream_response(user_input, channel_id):
                 if os.path.isfile(file_path) and (current_time - os.path.getmtime(file_path)) > 3600:
                     try:
                         os.remove(file_path)
-                        print(f"[DEBUG] 已刪除超過 30 分鐘的 PDF 圖片: {file_path}")
+                        print(f"[DEBUG] 已刪除超過 60 分鐘的 PDF 圖片: {file_path}")
                     except Exception as e:
                         print(f"[ERROR] 刪除 PDF 圖片時出錯 {file_path}: {e}")
             
