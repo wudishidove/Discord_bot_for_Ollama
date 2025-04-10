@@ -13,7 +13,7 @@ import re
 import glob
 import ollama
 # 導入 PDF 轉換函數
-from to_html import convert_pdf_to_html
+from ollama_tool import *
 import pymupdf4llm
 import pymupdf.pro
 pymupdf.pro.unlock()
@@ -33,9 +33,64 @@ MODEL_MAX_TOKENS = {
     "gemma3:12b": 131072,
     "gemma3:27b": 131072,
     "gemma3:nsfw2": 131072,
-    "deepseek-r1:32b": 131072
+    "deepseek-r1:32b": 131072,
+    "qwq": 131072,
+    "mistral-small3.1": 131072
 }
-
+# calling tools
+tools = [
+    generate_function_description(get_current_weather),
+    generate_function_description(get_local_time),
+    generate_function_description(google_search),
+    generate_function_description(fetch_url_content),
+    generate_function_description(do_math),
+]
+def ollama_tool_response(user_input):
+    # 初始化消息歷史
+    messages = []
+    messages.append({"role": "system", "content": """如果使用者用中文問你，請用繁體中文回答。遇到工具使用需求時，請自行將使用者的問題透過工具來得到解答，工具使用沒有次數限制，可自行拆分工具步驟來達到使用者的需求"""})
+    # 主循環
+    try :
+        # 將使用者查詢添加到消息歷史
+        messages.append({"role": "user", "content": user_input})
+        
+        # 內部循環處理工具調用
+        while True:
+            # 調用LLM
+            client = ollama.Client(host="http://localhost:11434")
+            response = client.chat(
+                model='qwq',
+                messages=messages,
+                tools=tools,
+            )
+            
+            # 獲取LLM回應
+            message = response.get('message', {})
+            tool_calls = message.get('tool_calls')
+            
+            if tool_calls:
+                # 處理工具調用
+                for tool_call in tool_calls:
+                    tool_name = tool_call['function']['name']
+                    arguments = tool_call['function']['arguments']
+                    print(f"[debug]Calling tool: {tool_name} with arguments: {arguments}")
+                    
+                    # 動態執行工具函數
+                    result = globals()[tool_name](**arguments)
+                    print(f"[debug] Tool result: {result}")
+                    
+                    # 將工具結果添加到消息歷史
+                    messages.append({"role": "tool", "content": result})
+            else:
+                # 沒有工具調用，輸出最終回答並結束內部循環
+                content = message.get('content', '')
+                print("Assistant:", content)
+                messages.append({"role": "assistant", "content": content})
+                break
+        return content
+    except Exception as e:
+        print("error:",e)
+        return "發生錯誤，請稍後再試。"
 # 初始化記憶功能（臨時使用，每次對話前都會重新加載頻道特定的記憶）
 memory = ConversationBufferMemory(
     memory_key="history",
@@ -519,7 +574,9 @@ async def help(ctx):
 - gemma3:12b    快速回答，一般使用，圖片理解勉強
 - gemma3:27b    回答速度慢，能力較好，圖片理解強(自帶英文OCR)
 - gemma3:nsfw2  NSFW魔改版,有時候會胡言亂語
+- mistral-small3.1 各種工具都能用
 - deepseek-r1:32b 高等複雜度 會輸出推理(思考)過程
+- qwq  比deepseek-r1:32b更強的推理模型
 - 
 🎯 **使用方式**:
 - 輸入 `++chat 你好` 與 Bot 開始對話。
