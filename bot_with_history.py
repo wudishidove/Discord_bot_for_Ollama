@@ -733,23 +733,29 @@ async def stream_response(user_input, channel_id):
     image_dir = str(channel_id)
     image_set = set()
     for ext in ['.png', '.jpg', '.jpeg', '.gif', '.bmp']:
-        image_set.update(glob.glob(os.path.join(image_dir, f"*{ext}")))
-        image_set.update(glob.glob(os.path.join(image_dir, f"*{ext.upper()}")))  # 為相容某些大小寫系統
+        image_files = glob.glob(os.path.join(image_dir, f"*{ext}"))
+        image_files.extend(glob.glob(os.path.join(image_dir, f"*{ext.upper()}")))
+        # 將反斜線轉換為正斜線
+        image_files = [path.replace('\\', '/') for path in image_files]
+        image_set.update(image_files)
     image_list = sorted(image_set)
     
-    #pdf img
+    # pdf img
     pdf_image_dir = os.path.join(str(channel_id), "pdf_images")
     if os.path.exists(pdf_image_dir):  # 確認 pdf_images 目錄存在
         pdf_image_set = set()
         for ext in ['.png', '.jpg', '.jpeg', '.gif', '.bmp']:
-            pdf_image_set.update(glob.glob(os.path.join(pdf_image_dir, f"*{ext}")))
-            pdf_image_set.update(glob.glob(os.path.join(pdf_image_dir, f"*{ext.upper()}")))  # 為相容某些大小寫系統
+            pdf_files = glob.glob(os.path.join(pdf_image_dir, f"*{ext}"))
+            pdf_files.extend(glob.glob(os.path.join(pdf_image_dir, f"*{ext.upper()}")))
+            # 將反斜線轉換為正斜線
+            pdf_files = [path.replace('\\', '/') for path in pdf_files]
+            pdf_image_set.update(pdf_files)
         image_list.extend(sorted(pdf_image_set))  # 將 PDF 圖片加入主列表
     
     print(f"[DEBUG] 使用 {len(image_list)} 張圖片，包含一般圖片和 PDF 圖片")
     if image_list:
         print(f"[DEBUG] 圖片列表: {image_list}")
-
+    
     # 添加用戶輸入
     messages.append({"role": "user", "content": user_input,"images": image_list})
     print("[DEBUG] input messages:", json.dumps(messages, ensure_ascii=False, indent=2))
