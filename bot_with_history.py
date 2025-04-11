@@ -254,49 +254,28 @@ def process_user_input(user_input, channel_id):
         start_time = time.time()
         full_prompt = f"如我用繁體中文問問題，也請你用繁體中文回答，並不使用任何特殊字符和表情：{prompt_with_memory}"
         prompt_with_memory = full_prompt
-        # 發送到 Ollama API
-        response = requests.post(
-            OLLAMA_API_URL,
-            json={"model": current_model, "prompt": prompt_with_memory},
-            headers={"Content-Type": "application/json"}
+        prompt_with_memory = handle_promt_history(context)
+        prompt_with_memory.append({"role": "user", "content": user_input})
+        client = ollama.Client(host="http://localhost:11434")
+        response = client.chat(
+            model=current_model,
+            messages=prompt_with_memory,
+            stream=False  # 啟用串流模式
         )
-
-        if response.status_code == 200:
-            try:
-                # 計算處理時間
-                elapsed_time = time.time() - start_time
-                # 檢查是否為逐行 JSON 回應
-                if '\n' in response.text:
-                    full_response = ""
-                    for line in response.text.splitlines():
-                        try:
-                            data = json.loads(line)
-                            full_response += data.get("response", "")
-                            if data.get("done", False):
-                                break
-                        except json.JSONDecodeError:
-                            continue
-                    memory.save_context({"input": user_input}, {
-                                        "output": full_response})
-                    print("[DEBUG] Full response processed:", full_response)
-                    save_history_to_file(channel_id)  # 保存記憶歷史
-                    return full_response.strip(), elapsed_time
-                else:
-                    # 單行 JSON 回應
-                    result = response.json()
-                    bot_response = result.get("response", "模型未返回內容，請稍後再試。")
-                    # 更新記憶
-                    memory.save_context({"input": user_input}, {
-                                        "output": bot_response})
-                    print("[DEBUG] Single-line response:", bot_response)
-                    save_history_to_file(channel_id)  # 保存記憶歷史
-                    return bot_response, elapsed_time
-            except json.JSONDecodeError as e:
-                raise Exception(f"JSON 解碼錯誤：{e}")
+        # 計算處理時間
+        elapsed_time = time.time() - start_time
+        
+        # ollama.Client().chat() 返回的是 ChatResponse 對象
+        # 從回應中獲取內容
+        if response and 'message' in response and 'content' in response['message']:
+            bot_response = response['message']['content']
+            # 更新記憶
+            memory.save_context({"input": user_input}, {"output": bot_response})
+            print("[DEBUG] Response processed:", bot_response)
+            save_history_to_file(channel_id)  # 保存記憶歷史
+            return bot_response.strip(), elapsed_time
         else:
-            raise Exception(
-                f"Ollama API Error: {response.status_code} - {response.text}"
-            )
+            raise Exception("模型未返回有效內容，請稍後再試。")
     except Exception as e:
         raise Exception(f"處理請求時發生錯誤：{e}")
 
@@ -773,12 +752,10 @@ async def stream_response(user_input, channel_id):
     for chunk in stream:
         new_text = chunk['message']['content']
         buffer += new_text
-        
-        # 檢查是否已經過了 0.5 秒
-        current_time = time.time()
-        if current_time - last_update_time >= 0.5:
+        if time.time() - last_update_time >= 0.5:
             yield buffer
-            last_update_time = current_time
+            last_update_time = time.time()
+            
     
     # 確保最後的內容也被傳送出去
     if buffer:
@@ -923,7 +900,7 @@ async def on_message(message):
                         new_msg = await message.channel.send(seg)
                         thinking_messages.append(new_msg)
                 # 等待0.1秒再處理下一次更新
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.1)
             # 回應全部取得完畢後，記錄回應歷史
             memory.save_context({"input": user_input}, {"output": final_response})
             print("[DEBUG] Full response processed:", final_response)
