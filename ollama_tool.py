@@ -219,7 +219,7 @@ def google_search(query: str) -> str:
             return "Google API key or CX not found in config.json. Please configure them properly."
         
         # 設置最多回傳 10 個結果
-        max_results = 10
+        max_results = 5
         url = f"https://www.googleapis.com/customsearch/v1?key={api_key}&cx={cx}&q={requests.utils.requote_uri(query)}&num={max_results}"
         
         # 發送 API 請求
@@ -232,8 +232,7 @@ def google_search(query: str) -> str:
             for item in data['items'][:max_results]:
                 title = item.get('title', 'No title')
                 href = item.get('link', 'No URL')
-                results.append(f"{title}: {href}")
-        
+                results.append(f"{title},{href},content:{{{fetch_url_content(href, True)}}}\n")
         # 回傳結果，若無結果則回傳 "No results found."
         return "\n".join(results) if results else "No results found."
     except FileNotFoundError:
