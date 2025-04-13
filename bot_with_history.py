@@ -39,7 +39,6 @@ MODEL_MAX_TOKENS = {
 }
 # calling tools
 tools = [
-    generate_function_description(get_current_weather),
     generate_function_description(get_local_time),
     generate_function_description(google_search),
     generate_function_description(fetch_url_content),
@@ -604,7 +603,8 @@ def handle_promt_history(context):
     # 初始化消息歷史
     messages = [
         {"role": "system", "content": """如果使用者用繁體中文問你，也請你用繁體中文回答。
-        請老實回答，不要造假不確定的答案，不知道時請使用tool進行google搜尋至少3個網站，並於回答時附上網站的href。
+        遇到數學問題時，請先嘗試用tool進行計算。
+        另外，請老實回答，不要造假不確定的答案，不知道時請使用tool進行google搜尋至少3個網站，並於回答時附上網站的href。
         請不要使用任何特殊字符和表情。"""},
     ]
     

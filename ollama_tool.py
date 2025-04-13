@@ -206,13 +206,14 @@ def fetch_url_content(url: str, user_input: str) -> str:
     except Exception as e:
         return f"無法獲取或處理網頁內容 {url}: {str(e)}"
 #######
-def do_math(a:int, op:str, b:int)->str:
+def do_math(a:float, op:str, b:float)->str:
     """
     Do basic math operations.
+    EX: a=2,op="^",b=4,return "16"
 
     Args:
         a: The first number.
-        op: The operation to perform (+, -, *, /).
+        op: The operation to perform (+, -, *, /,^).
         b: The second number.
 
     Returns:
@@ -220,14 +221,16 @@ def do_math(a:int, op:str, b:int)->str:
     """
     res = "Nan"
     if op == "+":
-        res = str(int(a) + int(b))
+        res = str(a + b)
     elif op == "-":
-        res = str(int(a) - int(b))
+        res = str(a - b)
     elif op == "*":
-        res = str(int(a) * int(b))
+        res = str(a*b)
     elif op == "/":
         if int(b) != 0:
-            res = str(int(a) / int(b))
+            res = str(a/b)
+    elif op == "^":
+        res = str(a ** b)
     return res
 
 def google_search(query: str) -> str:
