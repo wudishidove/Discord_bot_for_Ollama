@@ -4,7 +4,9 @@ import re
 from bs4 import BeautifulSoup  # 加入此匯入以使用 BeautifulSoup
 import time
 import requests
-
+import ollama
+# 儲存當前選擇的模型
+current_model = "mistral-small3.1"  # 預設模型
 def generate_function_description(func):
     func_name = func.__name__
     docstring = func.__doc__
@@ -139,18 +141,16 @@ def web_search(query: str) -> str:
         href = a['href']
         results.append(f"{title}: {href}")
     return "\n".join(results) if results else "No results found."
-def fetch_url_content(url: str, unlimit_web_content: bool) -> str:
+def fetch_url_content(url: str, user_input: str) -> str:
     """
     Fetch a web page and return its text content.
     
     Args:
         url: The URL of the web page to fetch.
-        unlimit_web_content: If True, return the entire web page content; 
-                             if False, truncate the content to 2000 characters.
+        user_input: 依照使用者輸入，從搜尋網站提取重要的內容
     
     Returns:
-        A string containing the web page's text content. If unlimit_web_content is False,
-        the returned text is truncated to 2000 characters with a truncation notice appended.
+        A string containing the web page's text content. 
     
     Note:
         This function uses a custom User-Agent header and a timeout of 10 seconds.
@@ -159,21 +159,51 @@ def fetch_url_content(url: str, unlimit_web_content: bool) -> str:
     try:
         # Send an HTTP GET request to fetch the web page
         res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-        # Parse the HTML content with BeautifulSoup
+        res.encoding = res.apparent_encoding  # 自動檢測編碼
+        
+        # 使用BeautifulSoup解析HTML
         soup = BeautifulSoup(res.text, 'html.parser')
-        # Extract the text from the page, separating elements with newlines
+        
+        # 移除不必要的元素
+        for tag in soup(['script', 'style', 'meta', 'link', 'header', 'footer', 'nav']):
+            tag.decompose()
+            
+        # 提取主要文本內容
         text = soup.get_text(separator="\n").strip()
         
-        # If unlimit_web_content is False, truncate the text to a maximum length
-        if not unlimit_web_content:
-            max_length = 2000
-            if len(text) > max_length:
-                text = text[:max_length] + "... [Content truncated]"
-        # Return the final text content
-        return text
+        # 清理文本
+        text = re.sub(r'\n+', '\n', text)  # 移除多餘的換行
+        text = re.sub(r'\s+', ' ', text)   # 移除多餘的空格
+        
+        # 如果有用戶輸入，使用LLM生成相關摘要
+        if user_input:
+            # 準備消息
+            url_promt = [
+                {"role": "system", "content": f"""請根據關鍵詞「{user_input}」從以下網頁內容中提取相關資訊並生成摘要。
+                要求：
+                1. 摘要限制在1000字以內
+                2. 在不超過長度限制的前提下，除了保留與關鍵詞最相關的內容外，盡可能不刪減細節
+                3. 如果找不到相關內容，請正常提取網頁摘要即可。
+                """},
+                {"role": "user", "content": f"網頁內容:\n{text[:50000]}"}  # 限制輸入長度
+            ]
+            
+            # 調用LLM生成摘要
+            client = ollama.Client(host="http://localhost:11434")
+            response = client.chat(
+                model=current_model,
+                messages=url_promt
+            )
+            print(f"[debug] response: {response['message']}")
+            # 獲取摘要
+            if response and 'message' in response and 'content' in response['message']:
+                return f"來源: {url}\n\n" + response['message']['content']
+            
+        # 如果沒有用戶輸入或LLM處理失敗，返回原始文本的前1000個字符
+        return f"來源: {url}\n\n" + text[:2000] + "..."
+        
     except Exception as e:
-        # In case of error, return an error message
-        return f"[Could not retrieve {url}: {e}]"
+        return f"無法獲取或處理網頁內容 {url}: {str(e)}"
 #######
 def do_math(a:int, op:str, b:int)->str:
     """
@@ -219,7 +249,7 @@ def google_search(query: str) -> str:
             return "Google API key or CX not found in config.json. Please configure them properly."
         
         # 設置最多回傳 10 個結果
-        max_results = 5
+        max_results = 10
         url = f"https://www.googleapis.com/customsearch/v1?key={api_key}&cx={cx}&q={requests.utils.requote_uri(query)}&num={max_results}"
         
         # 發送 API 請求
@@ -232,7 +262,8 @@ def google_search(query: str) -> str:
             for item in data['items'][:max_results]:
                 title = item.get('title', 'No title')
                 href = item.get('link', 'No URL')
-                results.append(f"{title},{href},content:{{{fetch_url_content(href, True)}}}\n")
+                results.append(f"{title},{href}\n")
+                # results.append(f"{title},{href},content:{{{fetch_url_content(href, "")}}}\n")
         # 回傳結果，若無結果則回傳 "No results found."
         return "\n".join(results) if results else "No results found."
     except FileNotFoundError:
@@ -241,3 +272,67 @@ def google_search(query: str) -> str:
         return "Invalid config.json format. Please check the file format."
     except Exception as e:
         return f"Error occurred while searching: {str(e)}"
+if __name__ == "__main__":
+    tools = [
+    generate_function_description(get_current_weather),
+    generate_function_description(get_local_time),
+    generate_function_description(google_search),
+    generate_function_description(fetch_url_content),
+    generate_function_description(do_math),
+    ]
+
+    logging.debug("Tools:")
+    logging.debug(json.dumps(tools, indent=4))
+    functions = [f["function"]["description"] for f in tools]
+    print("I am a chatbot able to run some functions.\n", "Functions:\n\t", functions)
+
+    # 初始化消息歷史
+    messages = []
+    messages.append({"role": "system", "content": """如果使用者用中文問你，請用繁體中文回答。遇到工具使用需求時，請自行將使用者的問題透過工具來得到解答，工具使用沒有次數限制，可自行拆分工具步驟來達到使用者的需求"""})
+    # 主循環
+    try :
+        while True:
+            query = input("Enter your query (or 'quit' to exit): ")
+            if query == "quit":
+                break
+            if query.strip() == "":
+                continue
+            
+            # 將使用者查詢添加到消息歷史
+            messages.append({"role": "user", "content": query})
+            
+            # 內部循環處理工具調用
+            while True:
+                # 調用LLM
+                response = client.chat(
+                    model=current_model,
+                    messages=messages,
+                    tools=tools,
+                )
+                
+                # 獲取LLM回應
+                message = response.get('message', {})
+                tool_calls = message.get('tool_calls')
+                
+                if tool_calls:
+                    # 處理工具調用
+                    for tool_call in tool_calls:
+                        tool_name = tool_call['function']['name']
+                        arguments = tool_call['function']['arguments']
+                        logging.info(f"Calling tool: {tool_name} with arguments: {arguments}")
+                        
+                        # 動態執行工具函數
+                        result = globals()[tool_name](**arguments)
+                        logging.info(f"Tool result: {result}")
+                        
+                        # 將工具結果添加到消息歷史
+                        messages.append({"role": "tool", "content": result})
+                else:
+                    # 沒有工具調用，輸出最終回答並結束內部循環
+                    content = message.get('content', '')
+                    print("Assistant:", content)
+                    messages.append({"role": "assistant", "content": content})
+                    break
+    except Exception as e:
+        print("error:",e)
+

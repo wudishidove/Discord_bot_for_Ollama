@@ -648,7 +648,8 @@ def handle_promt_history(context):
     # 初始化消息歷史
     messages = [
         {"role": "system", "content": """如果使用者用繁體中文問你，也請你用繁體中文回答。
-        除非我特別請你天馬行空發揮創意，否則請老實回答(不知道就老實說不知道)。
+        請老實回答，不要造假不確定的答案，不知道時請使用tool進行google搜尋，
+        若使用google搜尋時，請至少查看三個網站的內容後再回答，並於回答時附上該網站的href。
         請不要使用任何特殊字符和表情。"""},
     ]
     
@@ -738,7 +739,9 @@ async def stream_response(user_input, channel_id):
     # 添加用戶輸入
     messages.append({"role": "user", "content": user_input,"images": image_list})
     print("[DEBUG] input messages:", json.dumps(messages, ensure_ascii=False, indent=2))
+    """備份，不要刪
     # 建立 ollama client 並使用 stream 模式呼叫 chat API
+    
     client = ollama.Client(host="http://localhost:11434")
     stream = client.chat(
         model=current_model,
@@ -746,20 +749,87 @@ async def stream_response(user_input, channel_id):
         stream=True  # 啟用串流模式
     )
     
-    # 依據 stream 回傳的資料塊持續 yield 累積內容
-    buffer = ""
-    last_update_time = time.time()
-    for chunk in stream:
-        new_text = chunk['message']['content']
-        buffer += new_text
-        if time.time() - last_update_time >= 0.5:
-            yield buffer
-            last_update_time = time.time()
+    # # 依據 stream 回傳的資料塊持續 yield 累積內容
+    # buffer = ""
+    # last_update_time = time.time()
+    # for chunk in stream:
+    #     new_text = chunk['message']['content']
+    #     buffer += new_text
+    #     if time.time() - last_update_time >= 0.5:
+    #         yield buffer
+    #         last_update_time = time.time()
             
     
-    # 確保最後的內容也被傳送出去
-    if buffer:
-        yield buffer
+    # # 確保最後的內容也被傳送出去
+    # if buffer:
+    #     yield buffer
+    # 內部循環處理工具調用
+    """
+    try:
+        while True:
+            # 調用LLM
+            client = ollama.Client(host="http://localhost:11434")
+            stream = client.chat(
+                model=current_model,
+                messages=messages,
+                tools=tools,
+                stream=True  # 啟用串流模式
+            )
+            
+            # 依據 stream 回傳的資料塊持續 yield 累積內容
+            buffer = ""
+            last_update_time = time.time()
+            accumulated_response = ""  # 儲存累積的回應
+            tool_calls = []          # 儲存工具調用
+            
+            for chunk in stream:
+                if 'message' in chunk:
+                    if 'content' in chunk['message']:
+                        new_text = chunk['message']['content']
+                        buffer += new_text
+                        # accumulated_response += chunk['message']
+                        if time.time() - last_update_time >= 0.5 and buffer:  # 每0.5秒更新一次
+                            yield buffer
+                            last_update_time = time.time()
+                    # 處理工具調用
+                    if 'tool_calls' in chunk['message']:
+                        tool_calls.extend(chunk['message']['tool_calls'])
+            
+            # 確保最後的內容也被傳送出去
+            if buffer:
+                yield buffer
+            # print(f"[debug] full response: {accumulated_response}")
+            # # 從完整回應中取得tool_calls
+            # # tool_calls = None
+            # if 'message' in accumulated_response:  # 使用最後一個chunk
+            #     tool_calls = accumulated_response['message'].get('tool_calls')
+
+            
+            
+            if tool_calls:
+                print(f"[debug] Tool call")
+                # 處理工具調用
+                for tool_call in tool_calls:
+                    tool_name = tool_call['function']['name']
+                    arguments = tool_call['function']['arguments']
+                    print(f"[debug]Calling tool: {tool_name} with arguments: {arguments}")
+                    
+                    # 動態執行工具函數
+                    result = globals()[tool_name](**arguments)
+                    print(f"[debug] Tool result: {result}")
+                    
+                    # 將工具結果添加到消息歷史
+                    messages.append({"role": "tool", "content": result})
+            else:
+                # # 沒有工具調用，輸出最終回答並結束內部循環
+                # content = message.get('content', '')
+                # print("Assistant:", content)
+                # messages.append({"role": "assistant", "content": content})
+                break
+
+    except Exception as e:
+        print("[DEBUG] error:",e)
+
         
     # 回答完後的清理工作
     try:
