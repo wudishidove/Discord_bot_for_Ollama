@@ -7,6 +7,7 @@ import requests
 import ollama
 # 儲存當前選擇的模型
 current_model = "mistral-small3.1"  # 預設模型
+client = ollama.Client(host="http://localhost:11434")
 def generate_function_description(func):
     func_name = func.__name__
     docstring = func.__doc__
@@ -182,19 +183,19 @@ def fetch_url_content(url: str, user_input: str) -> str:
                 {"role": "system", "content": f"""請根據關鍵詞「{user_input}」從以下網頁內容中提取相關資訊並生成摘要。
                 要求：
                 1. 摘要限制在1000字以內
-                2. 在不超過長度限制的前提下，除了保留與關鍵詞最相關的內容外，盡可能不刪減細節
+                2. 在不超過長度限制的前提下，保留與關鍵詞最相關的內容
                 3. 如果找不到相關內容，請正常提取網頁摘要即可。
                 """},
-                {"role": "user", "content": f"網頁內容:\n{text[:50000]}"}  # 限制輸入長度
+                {"role": "user", "content": f"網頁內容:\n{text[:20000]}"}  # 限制輸入長度
             ]
-            
+            print(f"[debug] url promt: {url_promt}")
             # 調用LLM生成摘要
-            client = ollama.Client(host="http://localhost:11434")
+            
             response = client.chat(
                 model=current_model,
                 messages=url_promt
             )
-            print(f"[debug] response: {response['message']}")
+            print(f"\n========\n[debug] response: {response['message']}")
             # 獲取摘要
             if response and 'message' in response and 'content' in response['message']:
                 return f"來源: {url}\n\n" + response['message']['content']
@@ -263,7 +264,7 @@ def google_search(query: str) -> str:
                 title = item.get('title', 'No title')
                 href = item.get('link', 'No URL')
                 results.append(f"{title},{href}\n")
-                # results.append(f"{title},{href},content:{{{fetch_url_content(href, "")}}}\n")
+                # results.append(f"{title},{href},content:{{{fetch_url_content(href, query)}}}\n")
         # 回傳結果，若無結果則回傳 "No results found."
         return "\n".join(results) if results else "No results found."
     except FileNotFoundError:

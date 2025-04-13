@@ -45,52 +45,10 @@ tools = [
     generate_function_description(fetch_url_content),
     generate_function_description(do_math),
 ]
-def ollama_tool_response(user_input):
-    # 初始化消息歷史
-    messages = []
-    messages.append({"role": "system", "content": """如果使用者用中文問你，請用繁體中文回答。遇到工具使用需求時，請自行將使用者的問題透過工具來得到解答，工具使用沒有次數限制，可自行拆分工具步驟來達到使用者的需求"""})
-    # 主循環
-    try :
-        # 將使用者查詢添加到消息歷史
-        messages.append({"role": "user", "content": user_input})
-        
-        # 內部循環處理工具調用
-        while True:
-            # 調用LLM
-            client = ollama.Client(host="http://localhost:11434")
-            response = client.chat(
-                model='qwq',
-                messages=messages,
-                tools=tools,
-            )
-            
-            # 獲取LLM回應
-            message = response.get('message', {})
-            tool_calls = message.get('tool_calls')
-            
-            if tool_calls:
-                # 處理工具調用
-                for tool_call in tool_calls:
-                    tool_name = tool_call['function']['name']
-                    arguments = tool_call['function']['arguments']
-                    print(f"[debug]Calling tool: {tool_name} with arguments: {arguments}")
-                    
-                    # 動態執行工具函數
-                    result = globals()[tool_name](**arguments)
-                    print(f"[debug] Tool result: {result}")
-                    
-                    # 將工具結果添加到消息歷史
-                    messages.append({"role": "tool", "content": result})
-            else:
-                # 沒有工具調用，輸出最終回答並結束內部循環
-                content = message.get('content', '')
-                print("Assistant:", content)
-                messages.append({"role": "assistant", "content": content})
-                break
-        return content
-    except Exception as e:
-        print("error:",e)
-        return "發生錯誤，請稍後再試。"
+# 儲存當前選擇的模型
+current_model = "mistral-small3.1"  # 預設模型
+client = ollama.Client(host="http://localhost:11434")
+
 # 初始化記憶功能（臨時使用，每次對話前都會重新加載頻道特定的記憶）
 memory = ConversationBufferMemory(
     memory_key="history",
@@ -117,8 +75,6 @@ intents.messages = True  # 啟用訊息事件
 intents.message_content = True  # 啟用訊息內容訪問
 bot = commands.Bot(command_prefix="++", intents=intents)
 
-# 儲存當前選擇的模型
-current_model = "mistral-small3.1"  # 預設模型
 
 
 def is_in_allowed_channel(ctx):
@@ -256,7 +212,7 @@ def process_user_input(user_input, channel_id):
         prompt_with_memory = full_prompt
         prompt_with_memory = handle_promt_history(context)
         prompt_with_memory.append({"role": "user", "content": user_input})
-        client = ollama.Client(host="http://localhost:11434")
+        
         response = client.chat(
             model=current_model,
             messages=prompt_with_memory,
@@ -648,8 +604,7 @@ def handle_promt_history(context):
     # 初始化消息歷史
     messages = [
         {"role": "system", "content": """如果使用者用繁體中文問你，也請你用繁體中文回答。
-        請老實回答，不要造假不確定的答案，不知道時請使用tool進行google搜尋，
-        若使用google搜尋時，請至少查看三個網站的內容後再回答，並於回答時附上該網站的href。
+        請老實回答，不要造假不確定的答案，不知道時請使用tool進行google搜尋至少3個網站，並於回答時附上網站的href。
         請不要使用任何特殊字符和表情。"""},
     ]
     
@@ -738,7 +693,6 @@ async def stream_response(user_input, channel_id):
     
     # 添加用戶輸入
     messages.append({"role": "user", "content": user_input,"images": image_list})
-    print("[DEBUG] input messages:", json.dumps(messages, ensure_ascii=False, indent=2))
     """備份，不要刪
     # 建立 ollama client 並使用 stream 模式呼叫 chat API
     
@@ -768,7 +722,7 @@ async def stream_response(user_input, channel_id):
     try:
         while True:
             # 調用LLM
-            client = ollama.Client(host="http://localhost:11434")
+            print("[DEBUG] input messages:", json.dumps(messages, ensure_ascii=False, indent=2))
             stream = client.chat(
                 model=current_model,
                 messages=messages,
