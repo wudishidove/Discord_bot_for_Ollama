@@ -604,7 +604,7 @@ def handle_promt_history(context):
     messages = [
         {"role": "system", "content": """如果使用者用繁體中文問你，也請你用繁體中文回答。
         遇到數學問題時，請先嘗試用tool進行計算。
-        另外，請老實回答，不要造假不確定的答案，不知道時請使用tool進行google搜尋至少3個網站，並於回答時附上網站的href。
+        另外，遇到不會的問題時請使用tool進行google搜尋並fetch_url進行閱讀，最終回答時須附上參考網站的href。
         請不要使用任何特殊字符和表情。"""},
     ]
     
@@ -643,7 +643,7 @@ def handle_promt_history(context):
     
     return messages
 
-async def stream_response(user_input, channel_id):
+async def stream_response(user_input, channel_id,thinking_messages):
     """
     使用流式請求從 Ollama API 取得部分回應，並每兩秒 yield 當前累積內容
     """
@@ -733,57 +733,78 @@ async def stream_response(user_input, channel_id):
             # 依據 stream 回傳的資料塊持續 yield 累積內容
             buffer = ""
             last_update_time = time.time()
-            accumulated_response = ""  # 儲存累積的回應
             tool_calls = []          # 儲存工具調用
             
             for chunk in stream:
                 if 'message' in chunk:
                     if 'content' in chunk['message']:
                         new_text = chunk['message']['content']
-                        buffer += new_text
-                        # accumulated_response += chunk['message']
-                        if time.time() - last_update_time >= 0.5 and buffer:  # 每0.5秒更新一次
-                            yield buffer
-                            last_update_time = time.time()
+                        if new_text:  # 確保新文本不為空
+                            buffer += new_text
+                            if time.time() - last_update_time >= 0.5 and buffer:  # 每0.5秒更新一次
+                                yield buffer
+                                last_update_time = time.time()
                     # 處理工具調用
                     if 'tool_calls' in chunk['message']:
-                        tool_calls.extend(chunk['message']['tool_calls'])
+                        for tool_call in chunk['message']['tool_calls']:
+                            if tool_call not in tool_calls:  # 避免重複添加
+                                tool_calls.append(tool_call)
             
             # 確保最後的內容也被傳送出去
             if buffer:
                 yield buffer
-            # print(f"[debug] full response: {accumulated_response}")
-            # # 從完整回應中取得tool_calls
-            # # tool_calls = None
-            # if 'message' in accumulated_response:  # 使用最後一個chunk
-            #     tool_calls = accumulated_response['message'].get('tool_calls')
-
-            
-            
+                
+            # 如果有工具調用，則處理
             if tool_calls:
-                print(f"[debug] Tool call")
+                print(f"[DEBUG] 發現工具調用: {len(tool_calls)} 個")
+                
                 # 處理工具調用
                 for tool_call in tool_calls:
-                    tool_name = tool_call['function']['name']
-                    arguments = tool_call['function']['arguments']
-                    print(f"[debug]Calling tool: {tool_name} with arguments: {arguments}")
-                    
-                    # 動態執行工具函數
-                    result = globals()[tool_name](**arguments)
-                    print(f"[debug] Tool result: {result}")
-                    
-                    # 將工具結果添加到消息歷史
-                    messages.append({"role": "tool", "content": result})
+                    try:
+                        tool_name = tool_call['function']['name']
+                        arguments_str = tool_call['function']['arguments']
+                        
+                        # 解析參數 (確保是字典格式)
+                        try:
+                            arguments = json.loads(arguments_str) if isinstance(arguments_str, str) else arguments_str
+                        except json.JSONDecodeError:
+                            print(f"[ERROR] 無法解析工具參數: {arguments_str}")
+                            arguments = {}
+                            
+                        # 更新狀態訊息
+                        tool_status = f"🔧 正在使用工具：{tool_name}\n"
+                        tool_status += f"參數：{json.dumps(arguments, ensure_ascii=False)}"
+                        # 使用 asyncio.create_task 避免阻塞
+                        # 我們不等待它完成，因為它可能會失敗，但不應該阻止流程
+                        yield f"{buffer}\n\n{tool_status}"
+                        
+                        # 動態執行工具函數
+                        print(f"[DEBUG] 調用工具: {tool_name} 參數: {arguments}")
+                        result = globals()[tool_name](**arguments)
+                        print(f"[DEBUG] 工具結果: {result[:200]}...") if isinstance(result, str) and len(result) > 200 else print(f"[DEBUG] 工具結果: {result}")
+                        
+                        # 將工具結果添加到消息歷史
+                        messages.append({"role": "tool", "content": result})
+                        
+                        # 顯示工具執行結果
+                        tool_result = f"{buffer}\n\n🔧 工具 {tool_name} 執行結果：\n{result[:500]}..."
+                        if len(result) <= 500:
+                            tool_result = f"{buffer}\n\n🔧 工具 {tool_name} 執行結果：\n{result}"
+                        yield tool_result
+                    except Exception as e:
+                        error_msg = f"工具 {tool_name} 執行錯誤: {str(e)}"
+                        print(f"[ERROR] {error_msg}")
+                        yield f"{buffer}\n\n❌ {error_msg}"
+                        # 工具失敗時仍然添加空結果到歷史，以便模型知道工具被調用但失敗了
+                        messages.append({"role": "tool", "content": f"Error: {str(e)}"})
             else:
-                # # 沒有工具調用，輸出最終回答並結束內部循環
-                # content = message.get('content', '')
-                # print("Assistant:", content)
-                # messages.append({"role": "assistant", "content": content})
+                # 沒有工具調用，結束循環
                 break
 
     except Exception as e:
-        print("[DEBUG] error:",e)
-
+        error_message = f"[ERROR] stream_response 發生錯誤: {str(e)}"
+        print(error_message)
+        yield f"❌ {error_message}"
         
     # 回答完後的清理工作
     try:
@@ -908,7 +929,7 @@ async def on_message(message):
         final_response = ""  # 儲存最終完整回應
         try:
             # 非同步迭代器取得逐步更新的回應
-            async for partial in stream_response(user_input, message.channel.id):
+            async for partial in stream_response(user_input, message.channel.id,thinking_messages):
                 final_response = partial  # 更新最新累積回應
                 # 將累積的回應切割為多個不超過2000字的段落
                 segments = [partial[i:i+2000] for i in range(0, len(partial), 2000)]
