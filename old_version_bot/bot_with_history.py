@@ -7,14 +7,13 @@ import time
 import asyncio
 import os
 import base64
-# from PIL import Image
+from PIL import Image
 from io import BytesIO
 import re
 import glob
 import ollama
 # 導入 PDF 轉換函數
 from ollama_tool import *
-import global_var as GV
 import pymupdf4llm
 import pymupdf.pro
 pymupdf.pro.unlock()
@@ -36,63 +35,62 @@ MODEL_MAX_TOKENS = {
     "gemma3:nsfw2": 131072,
     "deepseek-r1:32b": 131072,
     "qwq": 131072,
-    "mistral-small3.2:24b": 131072,
-    "gpt-oss:latest": 131072
+    "mistral-small3.1": 131072
 }
 # calling tools
 tools = [
+    generate_function_description(get_current_weather),
     generate_function_description(get_local_time),
     generate_function_description(google_search),
     generate_function_description(fetch_url_content),
     generate_function_description(do_math),
 ]
-# Ollama client
-client = ollama.Client(host="http://localhost:11434")
-
-def ensure_model_available(model_name: str) -> str:
-    """確保模型可用；若不存在則嘗試拉取，不行則回退到 gpt-oss:latest。
-
-    回傳實際可用的模型名稱。
-    """
-    try:
-        # 先檢查當前已安裝模型
-        installed = []
-        try:
-            listed = client.list()
-            if isinstance(listed, dict) and 'models' in listed:
-                installed = [m.get('name') for m in listed.get('models', []) if isinstance(m, dict)]
-        except Exception:
-            installed = []
-
-        if model_name not in installed:
-            try:
-                client.pull(model=model_name, stream=False)
-            except Exception:
-                pass
-
-        # 再次確認
-        try:
-            listed = client.list()
-            if isinstance(listed, dict) and 'models' in listed:
-                installed = [m.get('name') for m in listed.get('models', []) if isinstance(m, dict)]
-        except Exception:
-            installed = []
-
-        if model_name in installed:
-            return model_name
-
-        # 回退到預設可用模型
-        fallback_model = "gpt-oss:latest"
-        if fallback_model not in installed:
-            try:
-                client.pull(model=fallback_model, stream=False)
-            except Exception:
-                pass
-        return fallback_model
-    except Exception:
-        # 發生非預期錯誤時，最後仍回退
-        return "gpt-oss:latest"
-
+def ollama_tool_response(user_input):
+    # 初始化消息歷史
+    messages = []
+    messages.append({"role": "system", "content": """如果使用者用中文問你，請用繁體中文回答。遇到工具使用需求時，請自行將使用者的問題透過工具來得到解答，工具使用沒有次數限制，可自行拆分工具步驟來達到使用者的需求"""})
+    # 主循環
+    try :
+        # 將使用者查詢添加到消息歷史
+        messages.append({"role": "user", "content": user_input})
+        
+        # 內部循環處理工具調用
+        while True:
+            # 調用LLM
+            client = ollama.Client(host="http://localhost:11434")
+            response = client.chat(
+                model='qwq',
+                messages=messages,
+                tools=tools,
+            )
+            
+            # 獲取LLM回應
+            message = response.get('message', {})
+            tool_calls = message.get('tool_calls')
+            
+            if tool_calls:
+                # 處理工具調用
+                for tool_call in tool_calls:
+                    tool_name = tool_call['function']['name']
+                    arguments = tool_call['function']['arguments']
+                    print(f"[debug]Calling tool: {tool_name} with arguments: {arguments}")
+                    
+                    # 動態執行工具函數
+                    result = globals()[tool_name](**arguments)
+                    print(f"[debug] Tool result: {result}")
+                    
+                    # 將工具結果添加到消息歷史
+                    messages.append({"role": "tool", "content": result})
+            else:
+                # 沒有工具調用，輸出最終回答並結束內部循環
+                content = message.get('content', '')
+                print("Assistant:", content)
+                messages.append({"role": "assistant", "content": content})
+                break
+        return content
+    except Exception as e:
+        print("error:",e)
+        return "發生錯誤，請稍後再試。"
 # 初始化記憶功能（臨時使用，每次對話前都會重新加載頻道特定的記憶）
 memory = ConversationBufferMemory(
     memory_key="history",
@@ -119,6 +117,8 @@ intents.messages = True  # 啟用訊息事件
 intents.message_content = True  # 啟用訊息內容訪問
 bot = commands.Bot(command_prefix="++", intents=intents)
 
+# 儲存當前選擇的模型
+current_model = "mistral-small3.1"  # 預設模型
 
 
 def is_in_allowed_channel(ctx):
@@ -128,7 +128,7 @@ def is_in_allowed_channel(ctx):
 def update_memory_limit():
     """根據當前模型更新記憶最大 token 限制（只更新記憶大小，不影響內容）"""
     global memory
-    max_tokens = MODEL_MAX_TOKENS.get(GV.current_model, 8192)  # 默認為 8192
+    max_tokens = MODEL_MAX_TOKENS.get(current_model, 8192)  # 默認為 8192
     # 只更新 token 限制，不會清除任何記憶內容
     memory = ConversationBufferMemory(
         memory_key="history",
@@ -156,9 +156,8 @@ def load_history_from_file(channel_id):
     """從頻道特定的 JSON 文件中載入記憶歷史"""
     global memory
     
-    
     # 重置記憶（確保不會混合不同頻道的記憶）
-    memory = ConversationBufferMemory(max_token_limit=MODEL_MAX_TOKENS.get(GV.current_model, 8192))
+    memory = ConversationBufferMemory(max_token_limit=MODEL_MAX_TOKENS.get(current_model, 8192))
     
     if not channel_id:
         print("[WARNING] 未提供頻道 ID，無法載入記憶")
@@ -194,7 +193,7 @@ def trim_memory_with_ollama(channel_id):
     estimated_tokens = len(history.split())  # 簡單估算token數
     
     # 如果token數小於最大限制的50%，不需裁減
-    if estimated_tokens < MODEL_MAX_TOKENS.get(GV.current_model, 8192) * 0.5:
+    if estimated_tokens < MODEL_MAX_TOKENS[current_model] * 0.5:
         print(f"[DEBUG] 當前token數（約{estimated_tokens}）不需裁減")
         return
 
@@ -210,10 +209,9 @@ def trim_memory_with_ollama(channel_id):
     
     請提供精簡後的重要對話：""".format(history=history)
 
-    usable_model = ensure_model_available(GV.current_model)
     response = requests.post(
         OLLAMA_API_URL,
-        json={"model": usable_model, "prompt": trim_prompt},
+        json={"model": current_model, "prompt": trim_prompt},
         headers={"Content-Type": "application/json"}
     )
 
@@ -244,7 +242,7 @@ def process_user_input(user_input, channel_id):
         current_tokens = len(context.get("history", "").split())  # 簡單估算token數
         
         # 如果超過最大限制的80%，觸發裁減
-        if current_tokens > MODEL_MAX_TOKENS.get(GV.current_model, 8192) * 0.8:
+        if current_tokens > MODEL_MAX_TOKENS[current_model] * 0.8:
             print(f"[DEBUG] 當前token數（約{current_tokens}）超過限制的80%，觸發裁減")
             trim_memory_with_ollama(channel_id)
             # 重新載入裁減後的上下文
@@ -258,10 +256,9 @@ def process_user_input(user_input, channel_id):
         prompt_with_memory = full_prompt
         prompt_with_memory = handle_promt_history(context)
         prompt_with_memory.append({"role": "user", "content": user_input})
-        
-        usable_model = ensure_model_available(GV.current_model)
+        client = ollama.Client(host="http://localhost:11434")
         response = client.chat(
-            model=usable_model,
+            model=current_model,
             messages=prompt_with_memory,
             stream=False  # 啟用串流模式
         )
@@ -552,12 +549,13 @@ async def help(ctx):
 4. **++clean_history** - 清除當前頻道的記憶歷史和檔案。
 
 📘 **可用模型**:
-- 預設模型: gpt-oss:latest
+- 預設模型: gemma3:27b
 - gemma3:12b    快速回答，一般使用，圖片理解勉強
-- gemma3:27b    回答速度較慢，能力較好，圖片理解較強
-- gemma3:nsfw2  NSFW 魔改版
-- deepseek-r1:32b 高等複雜度，會輸出推理(思考)過程
-- qwq  更強的推理模型
+- gemma3:27b    回答速度慢，能力較好，圖片理解強(自帶英文OCR)
+- gemma3:nsfw2  NSFW魔改版,有時候會胡言亂語
+- mistral-small3.1 各種工具都能用
+- deepseek-r1:32b 高等複雜度 會輸出推理(思考)過程
+- qwq  比deepseek-r1:32b更強的推理模型
 - 
 🎯 **使用方式**:
 - 輸入 `++chat 你好` 與 Bot 開始對話。
@@ -594,12 +592,13 @@ async def chat(ctx, *, user_input: str):
 @commands.check(is_in_allowed_channel)
 async def setmodel(ctx, model_name: str):
     """設定使用的模型"""
-    available_models = ["gpt-oss:latest", "gemma3:nsfw2", "gemma3:27b","gemma3:12b","deepseek-r1:32b"]
+    global current_model
+    available_models = ["gemma3:nsfw2", "gemma3:27b","gemma3:12b","deepseek-r1:32b"]
     if model_name in available_models:
-        GV.current_model = model_name
+        current_model = model_name
         update_memory_limit()  # 更新記憶限制
         print("[DEBUG] Model switched to:", model_name)
-        await ctx.send(f"已將模型切換為 `{model_name}`，記憶最大限制更新為 {MODEL_MAX_TOKENS.get(model_name, 8192)} tokens。")
+        await ctx.send(f"已將模型切換為 `{model_name}`，記憶最大限制更新為 {MODEL_MAX_TOKENS[model_name]} tokens。")
     else:
         print("[ERROR] Invalid model name:", model_name)
         await ctx.send(f"無效的模型名稱！可用模型：{', '.join(available_models)}")
@@ -613,7 +612,7 @@ async def clean_history(ctx):
     
     # 清除記憶歷史
     memory = ConversationBufferMemory(
-        max_token_limit=MODEL_MAX_TOKENS.get(GV.current_model, 8192))
+        max_token_limit=MODEL_MAX_TOKENS.get(current_model, 8192))
     print(f"[DEBUG] 頻道 {ctx.channel.id} 的記憶歷史已清除")
     
     # 清除歷史記憶文件
@@ -649,8 +648,7 @@ def handle_promt_history(context):
     # 初始化消息歷史
     messages = [
         {"role": "system", "content": """如果使用者用繁體中文問你，也請你用繁體中文回答。
-        遇到數學問題時，請先嘗試用tool進行計算。
-        另外，遇到不會的問題時請使用tool進行google搜尋並fetch_url進行閱讀，最終回答時須附上參考網站的href。
+        除非我特別請你天馬行空發揮創意，否則請老實回答(不知道就老實說不知道)。
         請不要使用任何特殊字符和表情。"""},
     ]
     
@@ -689,7 +687,7 @@ def handle_promt_history(context):
     
     return messages
 
-async def stream_response(user_input, channel_id,thinking_messages):
+async def stream_response(user_input, channel_id):
     """
     使用流式請求從 Ollama API 取得部分回應，並每兩秒 yield 當前累積內容
     """
@@ -701,7 +699,7 @@ async def stream_response(user_input, channel_id,thinking_messages):
     current_tokens = len(context.get("history", "").split())  # 簡單估算token數
     
     # 如果超過最大限制的80%，觸發裁減
-    if current_tokens > MODEL_MAX_TOKENS.get(GV.current_model, 8192) * 0.8:
+    if current_tokens > MODEL_MAX_TOKENS[current_model] * 0.8:
         print(f"[DEBUG] 當前token數（約{current_tokens}）超過限制的80%，觸發裁減")
         trim_memory_with_ollama(channel_id)
         # 重新載入裁減後的上下文
@@ -739,122 +737,29 @@ async def stream_response(user_input, channel_id,thinking_messages):
     
     # 添加用戶輸入
     messages.append({"role": "user", "content": user_input,"images": image_list})
+    print("[DEBUG] input messages:", json.dumps(messages, ensure_ascii=False, indent=2))
+    # 建立 ollama client 並使用 stream 模式呼叫 chat API
+    client = ollama.Client(host="http://localhost:11434")
+    stream = client.chat(
+        model=current_model,
+        messages=messages,
+        stream=True  # 啟用串流模式
+    )
     
-    # 檢查是否需要使用工具（關鍵字檢測）
-    need_tools = any(keyword in user_input.lower() for keyword in [
-        '搜尋', '搜索', '查詢', '天氣', '時間', '計算', '數學', '幾點', '現在', '今天',
-        'search', 'weather', 'time', 'calculate', 'math', 'what time', 'current', 'today'
-    ])
-    
-    try:
-        client = ollama.Client(host="http://localhost:11434")
-        print("[DEBUG] input messages:", json.dumps(messages, ensure_ascii=False, indent=2))
-        
-        if need_tools:
-            print(f"[DEBUG] 檢測到需要工具的關鍵字，使用工具模式")
-            # 直接使用帶工具的流式調用
-            while True:
-                usable_model = ensure_model_available(GV.current_model)
-                stream = client.chat(
-                    model=usable_model,
-                    messages=messages,
-                    tools=tools,
-                    stream=True
-                )
-                
-                buffer = ""
-                last_update_time = time.time()
-                tool_calls = []
-                
-                for chunk in stream:
-                    if 'message' in chunk:
-                        if 'content' in chunk['message']:
-                            new_text = chunk['message']['content']
-                            if new_text:
-                                buffer += new_text
-                                # 每0.5秒更新一次，確保逐步輸出
-                                if time.time() - last_update_time >= 0.5 and buffer:
-                                    yield buffer
-                                    last_update_time = time.time()
-                        
-                        # 處理工具調用
-                        if 'tool_calls' in chunk['message']:
-                            for tool_call in chunk['message']['tool_calls']:
-                                if tool_call not in tool_calls:
-                                    tool_calls.append(tool_call)
-                
-                # 確保最後的內容也被傳送出去
-                if buffer:
-                    yield buffer
-                
-                # 處理工具調用
-                if tool_calls:
-                    print(f"[DEBUG] 發現工具調用: {len(tool_calls)} 個")
-                    
-                    for tool_call in tool_calls:
-                        try:
-                            tool_name = tool_call['function']['name']
-                            arguments_str = tool_call['function']['arguments']
-                            
-                            try:
-                                arguments = json.loads(arguments_str) if isinstance(arguments_str, str) else arguments_str
-                            except json.JSONDecodeError:
-                                print(f"[ERROR] 無法解析工具參數: {arguments_str}")
-                                arguments = {}
-                            
-                            # 顯示工具執行狀態
-                            yield buffer + f"\n\n🔧 正在使用工具：{tool_name}"
-                            
-                            # 執行工具
-                            print(f"[DEBUG] 調用工具: {tool_name} 參數: {arguments}")
-                            result = globals()[tool_name](**arguments)
-                            print(f"[DEBUG] 工具結果: {result[:200]}...") if isinstance(result, str) and len(result) > 200 else print(f"[DEBUG] 工具結果: {result}")
-                            
-                            messages.append({"role": "tool", "content": result})
-                            
-                            # 顯示工具執行結果
-                            tool_result_preview = result[:300] + "..." if len(str(result)) > 300 else str(result)
-                            yield buffer + f"\n\n🔧 工具 {tool_name} 執行結果：\n{tool_result_preview}"
-                            
-                        except Exception as e:
-                            error_msg = f"工具 {tool_name} 執行錯誤: {str(e)}"
-                            print(f"[ERROR] {error_msg}")
-                            yield buffer + f"\n\n❌ {error_msg}"
-                            messages.append({"role": "tool", "content": f"Error: {str(e)}"})
-                else:
-                    # 沒有工具調用，結束循環
-                    break
-        else:
-            print(f"[DEBUG] 使用一般對話模式")
-            # 使用簡單的流式輸出
-            usable_model = ensure_model_available(GV.current_model)
-            stream = client.chat(
-                model=usable_model,
-                messages=messages,
-                stream=True
-            )
-            
-            buffer = ""
+    # 依據 stream 回傳的資料塊持續 yield 累積內容
+    buffer = ""
+    last_update_time = time.time()
+    for chunk in stream:
+        new_text = chunk['message']['content']
+        buffer += new_text
+        if time.time() - last_update_time >= 0.5:
+            yield buffer
             last_update_time = time.time()
             
-            for chunk in stream:
-                if 'message' in chunk and 'content' in chunk['message']:
-                    new_text = chunk['message']['content']
-                    if new_text:
-                        buffer += new_text
-                        # 每0.5秒更新一次，確保逐步輸出
-                        if time.time() - last_update_time >= 0.5 and buffer:
-                            yield buffer
-                            last_update_time = time.time()
-            
-            # 確保最後的內容也被傳送出去
-            if buffer:
-                yield buffer
-
-    except Exception as e:
-        error_message = f"[ERROR] stream_response 發生錯誤: {str(e)}"
-        print(error_message)
-        yield f"❌ {error_message}"
+    
+    # 確保最後的內容也被傳送出去
+    if buffer:
+        yield buffer
         
     # 回答完後的清理工作
     try:
@@ -979,7 +884,7 @@ async def on_message(message):
         final_response = ""  # 儲存最終完整回應
         try:
             # 非同步迭代器取得逐步更新的回應
-            async for partial in stream_response(user_input, message.channel.id,thinking_messages):
+            async for partial in stream_response(user_input, message.channel.id):
                 final_response = partial  # 更新最新累積回應
                 # 將累積的回應切割為多個不超過2000字的段落
                 segments = [partial[i:i+2000] for i in range(0, len(partial), 2000)]

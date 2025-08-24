@@ -1,0 +1,1 @@
+current_model = "gpt-oss:latest"  # 預設模型
