@@ -93,6 +93,10 @@ def ensure_model_available(model_name: str) -> str:
         # 發生非預期錯誤時，最後仍回退
         return "gpt-oss:latest"
 
+def get_channel_dir(channel_id):
+    """獲取頻道專用的儲存目錄路徑"""
+    return os.path.join("save_history", str(channel_id))
+
 # 初始化記憶功能（臨時使用，每次對話前都會重新加載頻道特定的記憶）
 memory = ConversationBufferMemory(
     memory_key="history",
@@ -145,8 +149,9 @@ def save_history_to_file(channel_id):
         
     context = memory.load_memory_variables({})
     # 確保頻道目錄存在
-    os.makedirs(str(channel_id), exist_ok=True)
-    history_file_path = os.path.join(str(channel_id), "history.json")
+    channel_dir = get_channel_dir(channel_id)
+    os.makedirs(channel_dir, exist_ok=True)
+    history_file_path = os.path.join(channel_dir, "history.json")
     with open(history_file_path, "w", encoding="utf-8") as history_file:
         json.dump(context, history_file, ensure_ascii=False, indent=4)
     print(f"[DEBUG] 頻道 {channel_id} 的記憶已保存到 {history_file_path}")
@@ -165,7 +170,8 @@ def load_history_from_file(channel_id):
         return False
         
     # 載入指定頻道的歷史記憶
-    history_file_path = os.path.join(str(channel_id), "history.json")
+    channel_dir = get_channel_dir(channel_id)
+    history_file_path = os.path.join(channel_dir, "history.json")
     if os.path.exists(history_file_path):
         try:
             with open(history_file_path, "r", encoding="utf-8") as history_file:
@@ -288,15 +294,18 @@ def handle_file_upload(filepath):
         ext = os.path.splitext(filepath)[1].lower()
         # 使用絕對路徑來獲取頻道 ID 和文件目錄
         abs_filepath = os.path.abspath(filepath)
-        channel_dir = os.path.dirname(abs_filepath) # 獲取頻道目錄的絕對路徑
-        channel_id = os.path.basename(channel_dir) # 假設頻道目錄名稱就是頻道 ID
+        channel_dir_full = os.path.dirname(abs_filepath) # 獲取頻道目錄的絕對路徑
+        channel_id = os.path.basename(channel_dir_full) # 假設頻道目錄名稱就是頻道 ID
+        
+        # 使用新的統一路徑結構
+        channel_dir = get_channel_dir(channel_id)
         
         print(f"[DEBUG] 處理文件 (絕對路徑): {abs_filepath}")
         print(f"[DEBUG] 文件類型: {ext}")
-        print(f"[DEBUG] 頻道目錄 (絕對路徑): {channel_dir}")
+        print(f"[DEBUG] 頻道目錄: {channel_dir}")
         print(f"[DEBUG] 頻道 ID: {channel_id}")
         
-        # 讀取或初始化頻道的文件內容 (使用絕對路徑)
+        # 讀取或初始化頻道的文件內容
         file_contents_path = os.path.join(channel_dir, 'file_contents.json')
         
         try:
@@ -315,6 +324,7 @@ def handle_file_upload(filepath):
         if ext in ('.png', '.jpg', '.jpeg', '.gif', '.bmp'):
             try:
                 # 重置閒置計數
+                os.makedirs(channel_dir, exist_ok=True)
                 idle_count_path = os.path.join(channel_dir, 'idle_count.json')
                 try:
                     with open(idle_count_path, 'w', encoding='utf-8') as f:
@@ -338,8 +348,9 @@ def handle_file_upload(filepath):
                 new_content = f"檔案名稱: {abs_filepath}\n檔案內容: {file_content}"
                 channel_file_contents.append(new_content)
                 
-                # 保存更新後的文件內容列表
+                # 確保目錄存在並保存更新後的文件內容列表
                 try:
+                    os.makedirs(channel_dir, exist_ok=True)
                     with open(file_contents_path, 'w', encoding='utf-8') as f:
                         json.dump(channel_file_contents, f, ensure_ascii=False, indent=4)
                     print(f"[DEBUG] 成功寫入 file_contents.json")
@@ -367,7 +378,8 @@ def image_idle_check(channel_id):
     
     try:
         # 讀取或初始化閒置計數
-        idle_count_path = os.path.join(str(channel_id), 'idle_count.json')
+        channel_dir = get_channel_dir(channel_id)
+        idle_count_path = os.path.join(channel_dir, 'idle_count.json')
         if os.path.exists(idle_count_path):
             with open(idle_count_path, 'r', encoding='utf-8') as f:
                 idle_count = json.load(f).get('idle_count', 0)
@@ -378,7 +390,7 @@ def image_idle_check(channel_id):
         idle_count += 1
         
         # 獲取所有圖片檔案
-        image_dir = str(channel_id)
+        image_dir = channel_dir
         image_files = []
         for ext in ['.png', '.jpg', '.jpeg', '.gif', '.bmp']:
             image_files.extend(glob.glob(os.path.join(image_dir, f"*{ext}")))
@@ -407,6 +419,8 @@ def image_idle_check(channel_id):
                 print(f"[ERROR] 刪除超量圖片時出錯: {e}")
                 break
         
+        # 確保目錄存在
+        os.makedirs(channel_dir, exist_ok=True)
         # 保存更新後的閒置計數
         with open(idle_count_path, 'w', encoding='utf-8') as f:
             json.dump({'idle_count': idle_count}, f, ensure_ascii=False, indent=4)
@@ -444,14 +458,18 @@ def image_idle_check(channel_id):
 #         return None
 def read_pdf_content(filepath):
     # 讓 to_markdown() 回傳每一頁的結構化資料，並提取圖片
-    channel_dir = os.path.dirname(filepath) # 獲取頻道目錄的絕對路徑
-    channel_id = os.path.basename(channel_dir) # 假設頻道目錄名稱就是頻道 ID
-        
+    channel_dir_full = os.path.dirname(filepath) # 獲取頻道目錄的絕對路徑
+    channel_id = os.path.basename(channel_dir_full) # 假設頻道目錄名稱就是頻道 ID
+    
+    # 使用新的統一路徑結構
+    channel_dir = get_channel_dir(channel_id)
+    pdf_images_path = os.path.join(channel_dir, "pdf_images")
+    
     chunks = pymupdf4llm.to_markdown(
         doc=filepath,
         write_images=True,
         image_format='jpg',
-        image_path=channel_id+"/pdf_images",  # 使用相對路徑，會自動在頻道目錄下建立
+        image_path=pdf_images_path,  # 使用完整路徑
         page_chunks=True
     )
 
@@ -616,8 +634,11 @@ async def clean_history(ctx):
         max_token_limit=MODEL_MAX_TOKENS.get(GV.current_model, 8192))
     print(f"[DEBUG] 頻道 {ctx.channel.id} 的記憶歷史已清除")
     
+    # 使用新的路徑結構
+    channel_dir = get_channel_dir(ctx.channel.id)
+    
     # 清除歷史記憶文件
-    history_file_path = os.path.join(str(ctx.channel.id), "history.json")
+    history_file_path = os.path.join(channel_dir, "history.json")
     if os.path.exists(history_file_path):
         try:
             os.unlink(history_file_path)
@@ -625,16 +646,20 @@ async def clean_history(ctx):
         except Exception as e:
             print(f"[ERROR] 刪除記憶歷史文件時出錯 {history_file_path}: {e}")
     
-    # 清除 userFile 目錄中的所有檔案
+    # 清除 save_history 目錄中的所有檔案
     try:
-        userfile_dir = str(ctx.channel.id)
-        if os.path.exists(userfile_dir):
-            for filename in os.listdir(userfile_dir):
-                file_path = os.path.join(userfile_dir, filename)
+        if os.path.exists(channel_dir):
+            for filename in os.listdir(channel_dir):
+                file_path = os.path.join(channel_dir, filename)
                 try:
                     if os.path.isfile(file_path):
                         os.unlink(file_path)
                         print(f"[DEBUG] 已刪除檔案: {file_path}")
+                    elif os.path.isdir(file_path):
+                        # 刪除子目錄（如 pdf_images）
+                        import shutil
+                        shutil.rmtree(file_path)
+                        print(f"[DEBUG] 已刪除目錄: {file_path}")
                 except Exception as e:
                     print(f"[ERROR] 刪除檔案時出錯 {file_path}: {e}")
             print(f"[DEBUG] 頻道 {ctx.channel.id} 的檔案目錄已清空")
@@ -710,8 +735,8 @@ async def stream_response(user_input, channel_id,thinking_messages):
     # 添加歷史記憶到消息中
     messages = handle_promt_history(context)
 
-    # 直接從 userFile 目錄讀取所有 .jpg 檔案
-    image_dir = str(channel_id)
+    # 直接從 save_history 目錄讀取所有圖片檔案
+    image_dir = get_channel_dir(channel_id)
     image_set = set()
     for ext in ['.png', '.jpg', '.jpeg', '.gif', '.bmp']:
         image_files = glob.glob(os.path.join(image_dir, f"*{ext}"))
@@ -722,7 +747,8 @@ async def stream_response(user_input, channel_id,thinking_messages):
     image_list = sorted(image_set)
     
     # pdf img
-    pdf_image_dir = os.path.join(str(channel_id), "pdf_images")
+    channel_dir = get_channel_dir(channel_id)
+    pdf_image_dir = os.path.join(channel_dir, "pdf_images")
     if os.path.exists(pdf_image_dir):  # 確認 pdf_images 目錄存在
         pdf_image_set = set()
         for ext in ['.png', '.jpg', '.jpeg', '.gif', '.bmp']:
@@ -859,7 +885,8 @@ async def stream_response(user_input, channel_id,thinking_messages):
     # 回答完後的清理工作
     try:
         # 1. 清理文字檔案內容的 JSON
-        file_contents_path = os.path.join(str(channel_id), 'file_contents.json')
+        channel_dir = get_channel_dir(channel_id)
+        file_contents_path = os.path.join(channel_dir, 'file_contents.json')
         if os.path.exists(file_contents_path):
             try:
                 os.remove(file_contents_path)
@@ -868,7 +895,7 @@ async def stream_response(user_input, channel_id,thinking_messages):
                 print(f"[ERROR] 刪除文字檔案內容時出錯: {e}")
         
         # 2. 清理原始的文字檔案（保留圖片檔案）
-        channel_dir = str(channel_id)
+        # channel_dir 已在上面定義
         if os.path.exists(channel_dir):
             for filename in os.listdir(channel_dir):
                 file_path = os.path.join(channel_dir, filename)
@@ -881,7 +908,7 @@ async def stream_response(user_input, channel_id,thinking_messages):
                         print(f"[ERROR] 刪除原始文字檔案時出錯 {file_path}: {e}")
                         
         # 3. 清理 PDF 圖片（如果存在且超過 30 分鐘）
-        pdf_image_dir = os.path.join(str(channel_id), "pdf_images")
+        pdf_image_dir = os.path.join(channel_dir, "pdf_images")
         if os.path.exists(pdf_image_dir):
             current_time = time.time()
             for filename in os.listdir(pdf_image_dir):
@@ -911,8 +938,9 @@ async def on_message(message):
     if message.author == bot.user or message.channel.id not in ALLOWED_CHANNEL_IDS:
         return
 
-    # 創建 userFile 目錄（如果不存在）
-    os.makedirs(str(message.channel.id), exist_ok=True)
+    # 創建 save_history 目錄（如果不存在）
+    channel_dir = get_channel_dir(message.channel.id)
+    os.makedirs(channel_dir, exist_ok=True)
     
     # 處理附加檔案
     if message.attachments:
@@ -924,7 +952,7 @@ async def on_message(message):
         
         for attachment in message.attachments:
             # 設定儲存路徑
-            file_path = os.path.join(str(message.channel.id), attachment.filename)
+            file_path = os.path.join(channel_dir, attachment.filename)
             # 下載檔案
             await attachment.save(file_path)
             print(f"[DEBUG] 已下載檔案: {file_path}")
@@ -954,7 +982,7 @@ async def on_message(message):
         user_input = message.content.replace(bot.user.mention, "").strip()
         
         # 讀取頻道的文件內容
-        file_contents_path = os.path.join(str(message.channel.id), 'file_contents.json')
+        file_contents_path = os.path.join(channel_dir, 'file_contents.json')
         channel_file_contents = []
         if os.path.exists(file_contents_path):
             try:
