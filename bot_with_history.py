@@ -46,6 +46,7 @@ tools = [
     generate_function_description(advanced_web_search),
     generate_function_description(fetch_url_content),
     generate_function_description(do_math),
+    generate_function_description(get_youtube_srt),
 ]
 # Ollama client
 client = ollama.Client(host="http://localhost:11434")
@@ -770,7 +771,7 @@ async def stream_response(user_input, channel_id,thinking_messages):
     # 檢查是否需要使用工具（關鍵字檢測）
     need_tools = any(keyword in user_input.lower() for keyword in [
         '搜尋', '搜索', '查詢', '天氣', '時間', '計算', '數學', '幾點', '現在', '今天',
-        'search', 'weather', 'time', 'calculate', 'math', 'what time', 'current', 'today'
+        'search', 'weather', 'time', 'calculate', 'math', 'what time', 'current', 'today','https://','http://'
     ])
     
     try:
@@ -835,7 +836,7 @@ async def stream_response(user_input, channel_id,thinking_messages):
                             # 執行工具
                             print(f"[DEBUG] 調用工具: {tool_name} 參數: {arguments}")
                             result = globals()[tool_name](**arguments)
-                            print(f"[DEBUG] 工具結果: {result[:200]}...") if isinstance(result, str) and len(result) > 200 else print(f"[DEBUG] 工具結果: {result}")
+                            print(f"[DEBUG] 工具結果: {result[:1000]}...") if isinstance(result, str) and len(result) > 1000 else print(f"[DEBUG] 工具結果: {result}")
                             
                             messages.append({"role": "tool", "content": result})
                             
@@ -848,6 +849,36 @@ async def stream_response(user_input, channel_id,thinking_messages):
                             print(f"[ERROR] {error_msg}")
                             yield buffer + f"\n\n❌ {error_msg}"
                             messages.append({"role": "tool", "content": f"Error: {str(e)}"})
+
+                    # 檢查工具回應是否已滿足需求
+                    if not check_if_tool_is_still_needed(messages):
+                        print(f"[DEBUG] 工具回應已滿足需求，切換到一般對話模式")
+                        messages.append({"role": "system", "content": """依照使用者的問題和工具結果進行完整的回答"""})
+                        # 使用包含工具結果的 messages 進行最終回應
+                        usable_model = ensure_model_available(GV.current_model)
+                        stream = client.chat(
+                            model=usable_model,
+                            messages=messages,
+                            stream=True
+                        )
+
+                        final_buffer = ""
+                        last_update_time = time.time()
+
+                        for chunk in stream:
+                            if 'message' in chunk and 'content' in chunk['message']:
+                                new_text = chunk['message']['content']
+                                if new_text:
+                                    final_buffer += new_text
+                                    # 每0.5秒更新一次，確保逐步輸出
+                                    if time.time() - last_update_time >= 0.5 and final_buffer:
+                                        yield final_buffer
+                                        last_update_time = time.time()
+
+                        # 確保最後的內容也被傳送出去
+                        if final_buffer:
+                            yield final_buffer
+                        break  # 跳出 while True 循環
                 else:
                     # 沒有工具調用，結束循環
                     break

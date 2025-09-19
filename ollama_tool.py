@@ -9,6 +9,7 @@ import ollama
 import subprocess
 import os
 import global_var as GV
+from tool.yt_srt.tool_srt import yt_srt_generation
 # 儲存當前選擇的模型
 
 client = ollama.Client(host="http://localhost:11434")
@@ -281,6 +282,191 @@ def google_search(query: str) -> str:
     except Exception as e:
         return f"Error occurred while searching: {str(e)}"
 
+def get_youtube_srt(url: str, user_input: str = "") -> str:
+    """
+    從 YouTube 影片取得字幕並生成摘要
+
+    Args:
+        url: YouTube 影片網址
+        user_input: 使用者的關鍵詞，用於提取相關內容
+
+    Returns:
+        包含影片字幕摘要的字串
+    """
+    try:
+        # 步驟1: 呼叫 yt_srt_generation 取得字幕檔案
+        print(f"[DEBUG] 開始處理 YouTube 影片: {url}")
+        success,  = yt_srt_generation(url)
+        output_file = 'yt_srt.txt'
+        if not success or not output_file:
+            return f"無法從 YouTube 影片取得字幕: {url}"
+
+        print(f"[DEBUG] 成功生成字幕檔案: {output_file}")
+
+        # 步驟2: 讀取字幕檔案內容
+        try:
+            with open(output_file, 'r', encoding='utf-8') as f:
+                text = f.read()
+            print(f"[DEBUG] 成功讀取字幕內容，長度: {len(text)} 字元")
+        except Exception as e:
+            return f"無法讀取字幕檔案 {output_file}: {str(e)}"
+
+        # 步驟3: 如果有使用者輸入，使用 LLM 生成相關摘要
+        if user_input or text:
+            # 準備消息（根據 tool_promt.txt 的格式）
+            url_promt = [
+                {"role": "system", "content": f"""請根據關鍵詞「{user_input if user_input else '完整內容'}」從以下逐字稿內容中提取相關資訊並生成摘要。
+                要求：
+                1. 嚴格要求根據逐字稿內容回答，不要加入自己的想像或猜測。
+                2. 盡可能保留與關鍵詞最相關的內容，其餘細節部份越詳細越好。
+                3. 摘要限制在2000字以內，除非必要不要超過。
+                4. 如果找不到相關內容，請正常提取逐字稿摘要即可。
+                """},
+                {"role": "user", "content": f"逐字稿內容:\n{text[:20000]}"}  # 限制輸入長度
+            ]
+
+            print(f"[DEBUG] 準備使用 Ollama 生成摘要，關鍵詞: {user_input if user_input else '無'}")
+
+            # 調用 LLM 生成摘要
+            try:
+                response = client.chat(
+                    model=GV.current_model,
+                    messages=url_promt
+                )
+
+                # 獲取摘要
+                if response and 'message' in response and 'content' in response['message']:
+                    summary = response['message']['content']
+                    print(f"[DEBUG] 成功生成摘要")
+                else:
+                    # 如果 LLM 處理失敗，返回原始文本的前1000個字符
+                    summary = text[:1000] + "..."
+
+            except Exception as e:
+                print(f"[DEBUG] Ollama 生成摘要失敗: {str(e)}")
+                # 如果 LLM 處理失敗，返回原始文本的前1000個字符
+                summary = text[:1000] + "..."
+        else:
+            # 如果沒有文本內容
+            summary = "無法取得字幕內容"
+
+        # 步驟4: 清理臨時檔案
+        try:
+            # 刪除生成的字幕檔案
+            if os.path.exists(output_file):
+                os.remove(output_file)
+                print(f"[DEBUG] 已刪除字幕檔案: {output_file}")
+
+            # 刪除對應的 MP3 檔案（如果存在）
+            mp3_file = os.path.splitext(output_file)[0] + ".mp3"
+            if os.path.exists(mp3_file):
+                os.remove(mp3_file)
+                print(f"[DEBUG] 已刪除 MP3 檔案: {mp3_file}")
+
+        except Exception as e:
+            print(f"[DEBUG] 清理檔案時發生錯誤: {str(e)}")
+
+        # 返回摘要結果，並將結果存檔方便檢查
+        output_text = f"來源: {url}\n\n{summary}"
+        try:
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            base_filename = f"yt_summary_{timestamp}.txt"
+           
+            # 存到 save_history 目錄
+            save_history_dir = os.path.join(os.getcwd(), "save_history")
+            os.makedirs(save_history_dir, exist_ok=True)
+            save_history_path = os.path.join(save_history_dir, base_filename)
+            with open(save_history_path, 'w', encoding='utf-8') as f:
+                f.write(output_text)
+            print(f"[DEBUG] 已輸出摘要到: {save_history_path}")
+        except Exception as e:
+            print(f"[WARNING] 儲存摘要到檔案時發生錯誤: {str(e)}")
+        return output_text
+
+    except Exception as e:
+        return f"處理 YouTube 影片時發生錯誤: {str(e)}"
+
+def check_if_tool_is_still_needed(messages: list) -> bool:
+    """
+    檢查工具的回傳是否已經滿足使用者的問題
+
+    Args:
+        messages: 包含對話紀錄的列表，其中包含工具回傳 {"role": "tool", "content": result}
+
+    Returns:
+        True: 仍需要調用更多工具
+        False: 工具回應已滿足使用者需求，可以進入一般對話模式
+    """
+    try:
+        # 提取最近的使用者問題
+        user_question = None
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                user_question = msg.get("content", "")
+                break
+
+        if not user_question:
+            return False  # 沒有找到使用者問題，預設不需要更多工具
+
+        # 提取所有工具回應
+        tool_responses = []
+        for msg in messages:
+            if msg.get("role") == "tool":
+                tool_responses.append(msg.get("content", ""))
+
+        if not tool_responses:
+            return True  # 沒有工具回應，可能需要工具
+
+        # 組合所有工具回應
+        combined_tool_response = "\n\n".join(tool_responses[-3:])  # 只取最近3個工具回應避免太長
+
+        # 準備判斷 prompt（獨立的，不污染原始對話）
+        check_prompt = [
+            {"role": "system", "content": """你是一個判斷助手。請判斷工具的回傳內容是否已經充分回答了使用者的問題。
+
+            判斷標準：
+            1. 如果工具已經提供了使用者所需的主要資訊，回答 "false"（不需要更多工具）
+            2. 如果工具回應明顯不足或失敗，需要調用其他工具，回答 "true"（仍需要工具）
+            3. 如果工具已成功獲取資料（如影片字幕、網頁內容等），回答 "false"
+
+            只回答一個單詞："true" 或 "false"，不要有其他內容。"""},
+            {"role": "user", "content": f"""使用者問題：{user_question}
+
+工具回應內容：
+{combined_tool_response[:3000]}
+
+請判斷：工具回應是否已經滿足使用者需求？
+如果已滿足，回答 "false"（不需要更多工具）
+如果未滿足，回答 "true"（仍需要工具）"""}
+        ]
+
+        # 調用 Ollama 進行判斷
+        response = client.chat(
+            model=GV.current_model,
+            messages=check_prompt,
+            stream=False
+        )
+
+        # 解析回應
+        if response and 'message' in response and 'content' in response['message']:
+            result = response['message']['content'].strip().lower()
+            print(f"[DEBUG] check_if_tool_is_still_needed 判斷結果: {result}")
+
+            # 判斷結果
+            if "false" in result:
+                return False  # 不需要更多工具
+            elif "true" in result:
+                return True  # 仍需要工具
+            else:
+                # 預設：如果有工具回應且不為錯誤，假設已滿足
+                return False
+
+        return False  # 預設不需要更多工具
+
+    except Exception as e:
+        print(f"[ERROR] check_if_tool_is_still_needed 發生錯誤: {str(e)}")
+        return False  # 發生錯誤時，預設不需要更多工具，避免無限循環
+
 def advanced_web_search(query: str) -> str:
     """Execute advanced web search using AI-enhanced multi-step process.
     
@@ -300,16 +486,24 @@ def advanced_web_search(query: str) -> str:
     try:
         # Get the current working directory
         current_dir = os.getcwd()
-        search_script = os.path.join(current_dir, "ollama-web-search", "main.py")
+        search_script = os.path.join(current_dir, "tool/ollama-web-search", "main.py")
         
         # Check if the search script exists
         if not os.path.exists(search_script):
             return f"Error: ollama-web-search script not found at {search_script}"
         
         # The JSON file that main.py will generate
-        json_file = os.path.join(current_dir, "ollama-web-search", "webpage_content.json")
-        
+        json_file = os.path.join(current_dir, "tool/ollama-web-search", "webpage_content.json")
+
         try:
+            # 在執行搜尋前，先清理舊的 JSON 檔案
+            if os.path.exists(json_file):
+                try:
+                    os.remove(json_file)
+                    print(f"[DEBUG] 已刪除舊的 webpage_content.json")
+                except Exception as e:
+                    print(f"[WARNING] 無法刪除舊檔案: {e}")
+
             # Execute the web search command using --query parameter
             result = subprocess.run([
                 "python", search_script, "--query", query
@@ -397,6 +591,7 @@ if __name__ == "__main__":
     generate_function_description(google_search),
     generate_function_description(advanced_web_search),
     generate_function_description(fetch_url_content),
+    generate_function_description(get_youtube_srt),
     generate_function_description(do_math),
     ]
 

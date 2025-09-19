@@ -1,0 +1,84 @@
+[2025-09-19 19:27:45] [WARNING ] discord.gateway: Shard ID None heartbeat blocked for more than 170 seconds.
+Loop thread traceback (most recent call last):
+  File "D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\bot_with_history.py", line 1070, in <module>
+    bot.run(DISCORD_TOKEN)
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\site-packages\discord\client.py", line 906, in run
+    asyncio.run(runner())
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 195, in run
+    return runner.run(main)
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 678, in run_until_complete
+    self.run_forever()
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\asyncio\windows_events.py", line 322, in run_forever
+    super().run_forever()
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 645, in run_forever
+    self._run_once()
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 1999, in _run_once
+    handle._run()
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\site-packages\discord\client.py", line 481, in _run_event
+    await coro(*args, **kwargs)
+  File "D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\bot_with_history.py", line 1042, in on_message
+    async for partial in stream_response(user_input, message.channel.id,thinking_messages):
+  File "D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\bot_with_history.py", line 838, in stream_response
+    result = globals()[tool_name](**arguments)
+  File "D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\ollama_tool.py", line 299, in get_youtube_srt
+    success, output_file = yt_srt_generation(url)
+  File "D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\tool\yt_srt\tool_srt.py", line 283, in yt_srt_generation
+    for i, segment in enumerate(segments, 1):
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\site-packages\faster_whisper\transcribe.py", line 1187, in generate_segments
+    ) = self.generate_with_fallback(encoder_output, prompt, tokenizer, options)
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\site-packages\faster_whisper\transcribe.py", line 1420, in generate_with_fallback
+    result = self.model.generate(
+
+[2025-09-19 19:27:55] [WARNING ] discord.gateway: Shard ID None heartbeat blocked for more than 180 seconds.
+Loop thread traceback (most recent call last):
+  File "D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\bot_with_history.py", line 1070, in <module>
+    bot.run(DISCORD_TOKEN)
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\site-packages\discord\client.py", line 906, in run
+    asyncio.run(runner())
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 195, in run
+    return runner.run(main)
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 678, in run_until_complete
+    self.run_forever()
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\asyncio\windows_events.py", line 322, in run_forever
+    super().run_forever()
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 645, in run_forever
+    self._run_once()
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py", line 1999, in _run_once
+    handle._run()
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\site-packages\discord\client.py", line 481, in _run_event
+    await coro(*args, **kwargs)
+  File "D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\bot_with_history.py", line 1042, in on_message
+    async for partial in stream_response(user_input, message.channel.id,thinking_messages):
+  File "D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\bot_with_history.py", line 838, in stream_response
+    result = globals()[tool_name](**arguments)
+  File "D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\ollama_tool.py", line 299, in get_youtube_srt
+    success, output_file = yt_srt_generation(url)
+  File "D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\tool\yt_srt\tool_srt.py", line 283, in yt_srt_generation
+    for i, segment in enumerate(segments, 1):
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\site-packages\faster_whisper\transcribe.py", line 1187, in generate_segments
+    ) = self.generate_with_fallback(encoder_output, prompt, tokenizer, options)
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\site-packages\faster_whisper\transcribe.py", line 1420, in generate_with_fallback
+    result = self.model.generate(
+
+處理了 443 個音頻片段
+
+=== 步驟 5: 儲存結果 ===
+結果已儲存至: 納莉颱風：那一年，台北變成了湖 ｜電信、捷運都癱瘓【我們的島環境X檔案 03】.txt
+
+=== 步驟 6: 清理資源 ===
+已釋放 GPU 記憶體
+
+=== 處理完成 ===
+[DEBUG] 成功生成字幕檔案: 納莉颱風：那一年，台北變成了湖 ｜電信、捷運都癱瘓【我們的島環境X檔案 03】.txt
+[DEBUG] 成功讀取字幕內容，長度: 4211 字元
+[DEBUG] 準備使用 Ollama 生成摘要，關鍵詞: 摘要
+
+D:\OneDrive\code\mygithub\Discord_bot_for_Ollama>
