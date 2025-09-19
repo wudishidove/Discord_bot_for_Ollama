@@ -43,6 +43,7 @@ MODEL_MAX_TOKENS = {
 tools = [
     generate_function_description(get_local_time),
     generate_function_description(google_search),
+    generate_function_description(advanced_web_search),
     generate_function_description(fetch_url_content),
     generate_function_description(do_math),
 ]

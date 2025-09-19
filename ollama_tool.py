@@ -6,6 +6,8 @@ from bs4 import BeautifulSoup  # 加入此匯入以使用 BeautifulSoup
 import time
 import requests
 import ollama
+import subprocess
+import os
 import global_var as GV
 # 儲存當前選擇的模型
 
@@ -124,26 +126,26 @@ def get_current_weather(city:str) -> str:
     return f"The current temperature in {city} is: {data['current_condition'][0]['temp_C']}°C"
 
 ######
-def web_search(query: str) -> str:
-    """Search DuckDuckGo and return a list of results (title and URL).
+# def web_search(query: str) -> str:
+#     """Search DuckDuckGo and return a list of results (title and URL).
 
-    Args:
-        query: The search query to look up on DuckDuckGo.
+#     Args:
+#         query: The search query to look up on DuckDuckGo.
 
-    Returns:
-        A string containing search results with titles and URLs, one per line.
-    """
-    max_results = 3
-    url = f"https://duckduckgo.com/html/?q={requests.utils.requote_uri(query)}"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    res = requests.get(url, headers=headers)
-    soup = BeautifulSoup(res.text, 'html.parser')
-    results = []
-    for a in soup.find_all("a", class_="result__url", href=True)[:max_results]:
-        title = a.get_text().strip()
-        href = a['href']
-        results.append(f"{title}: {href}")
-    return "\n".join(results) if results else "No results found."
+#     Returns:
+#         A string containing search results with titles and URLs, one per line.
+#     """
+#     max_results = 3
+#     url = f"https://duckduckgo.com/html/?q={requests.utils.requote_uri(query)}"
+#     headers = {"User-Agent": "Mozilla/5.0"}
+#     res = requests.get(url, headers=headers)
+#     soup = BeautifulSoup(res.text, 'html.parser')
+#     results = []
+#     for a in soup.find_all("a", class_="result__url", href=True)[:max_results]:
+#         title = a.get_text().strip()
+#         href = a['href']
+#         results.append(f"{title}: {href}")
+#     return "\n".join(results) if results else "No results found."
 def fetch_url_content(url: str, user_input: str) -> str:
     """
     Fetch a web page and return its text content.
@@ -278,11 +280,122 @@ def google_search(query: str) -> str:
         return "Invalid config.json format. Please check the file format."
     except Exception as e:
         return f"Error occurred while searching: {str(e)}"
+
+def advanced_web_search(query: str) -> str:
+    """Execute advanced web search using AI-enhanced multi-step process.
+    
+    This function uses the ollama-web-search project to perform:
+    1. Query optimization using AI
+    2. Web search via Google API  
+    3. AI-powered result selection
+    4. Content extraction via Jina Reader API
+    5. Return structured search results
+    
+    Args:
+        query: The search query or question to find information about.
+    
+    Returns:
+        A formatted string containing the search results including title, URL, and extracted content.
+    """
+    try:
+        # Get the current working directory
+        current_dir = os.getcwd()
+        search_script = os.path.join(current_dir, "ollama-web-search", "main.py")
+        
+        # Check if the search script exists
+        if not os.path.exists(search_script):
+            return f"Error: ollama-web-search script not found at {search_script}"
+        
+        # The JSON file that main.py will generate
+        json_file = os.path.join(current_dir, "ollama-web-search", "webpage_content.json")
+        
+        try:
+            # Execute the web search command using --query parameter
+            result = subprocess.run([
+                "python", search_script, "--query", query
+            ], capture_output=True, text=True, timeout=120, encoding='utf-8', errors='replace')
+            
+            if result.returncode != 0:
+                return f"Error executing web search: {result.stderr}"
+            
+            # Wait for the JSON file to be created (max 30 seconds, check every second)
+            max_wait_time = 30
+            wait_interval = 1
+            waited_time = 0
+            
+            print(f"[DEBUG] 等待 webpage_content.json 檔案生成...")
+            while waited_time < max_wait_time:
+                if os.path.exists(json_file):
+                    print(f"[DEBUG] 檔案已生成，等待了 {waited_time} 秒")
+                    break
+                time.sleep(wait_interval)
+                waited_time += wait_interval
+                if waited_time % 5 == 0:  # 每5秒顯示一次進度
+                    print(f"[DEBUG] 等待中... {waited_time}/{max_wait_time} 秒")
+            
+            # Check if file was created within timeout
+            if not os.path.exists(json_file):
+                return f"Error: webpage_content.json 在 {max_wait_time} 秒內未被創建。可能是 main.py 執行失敗或 Jina.ai API 超時。"
+            
+            # Try to read the JSON file with error handling
+            try:
+                with open(json_file, 'r', encoding='utf-8') as f:
+                    search_data = json.load(f)
+            except json.JSONDecodeError:
+                return "Error: webpage_content.json 檔案格式不正確，JSON 解析失敗"
+            except Exception as e:
+                return f"Error: 讀取 webpage_content.json 時發生錯誤: {str(e)}"
+            
+            # Get the latest entry (main.py appends new searches to the list)
+            if not search_data or not isinstance(search_data, list):
+                return "Error: Invalid JSON format in webpage_content.json"
+            
+            latest_search = search_data[-1]  # Get the most recent search
+            
+            # Extract information from the JSON structure
+            user_question = latest_search.get('user_question', 'N/A')
+            search_query = latest_search.get('search_query', 'N/A')
+            selected_result = latest_search.get('selected_result', {})
+            title = selected_result.get('title', 'N/A')
+            url = selected_result.get('url', 'N/A')
+            content = latest_search.get('webpage_content', 'No content available')
+            
+            # Format the results for the Discord bot
+            formatted_result = f"""AI 智慧搜尋結果：
+
+原始問題：{user_question}
+優化搜尋詞：{search_query}
+
+選中結果：
+標題：{title}
+網址：{url}
+
+內容摘要：
+{content[:2500]}{'...' if len(content) > 2500 else ''}
+
+來源：Ollama Web Search (AI增強搜尋)"""
+
+            return formatted_result
+            
+        finally:
+            # Clean up the JSON file immediately after reading
+            if os.path.exists(json_file):
+                try:
+                    os.remove(json_file)
+                    print(f"[DEBUG] 已清理 webpage_content.json")
+                except Exception as e:
+                    print(f"[WARNING] 清理 webpage_content.json 時發生錯誤: {e}")
+        
+    except subprocess.TimeoutExpired:
+        return "Error: Web search timed out after 120 seconds"
+    except Exception as e:
+        return f"Error during advanced web search: {str(e)}"
 if __name__ == "__main__":
     tools = [
     generate_function_description(get_current_weather),
     generate_function_description(get_local_time),
     generate_function_description(google_search),
+    generate_function_description(advanced_web_search),
     generate_function_description(fetch_url_content),
     generate_function_description(do_math),
     ]
