@@ -676,8 +676,8 @@ def handle_promt_history(context):
     # 初始化消息歷史
     messages = [
         {"role": "system", "content": """如果使用者用繁體中文問你，也請你用繁體中文回答。
-        遇到數學問題時，請先嘗試用tool進行計算。
-        另外，遇到不會的問題時請使用tool進行google搜尋並fetch_url進行閱讀，最終回答時須附上參考網站的href。
+        遇到數學問題時，請先嘗試用tool進行計算。看到youtube影片請用get_youtube_srt進行摘要。
+        另外，遇到不會的問題時請使用tool進行google_search並fetch_url進行閱讀，最終回答時須附上參考網站的href。
         請不要使用任何特殊字符和表情。"""},
     ]
     
@@ -853,7 +853,7 @@ async def stream_response(user_input, channel_id,thinking_messages):
                     # 檢查工具回應是否已滿足需求
                     if not check_if_tool_is_still_needed(messages):
                         print(f"[DEBUG] 工具回應已滿足需求，切換到一般對話模式")
-                        messages.append({"role": "system", "content": """依照使用者的問題和工具的結果進行'完整'的回答"""})
+                        messages.append({"role": "system", "content": """依照使用者的問題和工具的結果進行完整的回答，不能用...結尾"""})
                         # 使用包含工具結果的 messages 進行最終回應
                         usable_model = ensure_model_available(GV.current_model)
                         stream = client.chat(
