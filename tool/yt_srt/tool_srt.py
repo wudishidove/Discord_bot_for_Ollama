@@ -279,32 +279,53 @@ def yt_srt_generation(url: str) -> tuple[bool, str | None]:
 
         with open(output_file, "w", encoding="utf-8") as file:
             file.write(transcription)
-        
-        print(f"結果已儲存至: {output_file}")
-        
-        # 步驟 6: 清理資源
-        print("\n=== 步驟 6: 清理資源 ===")
-        del model
-        if device == "cuda":
-            torch.cuda.empty_cache()
-            print("已釋放 GPU 記憶體")
-        
+            file.flush()  # 強制寫入磁碟
+            os.fsync(file.fileno())  # 確保檔案系統同步
+
+        # 確認檔案已成功寫入
+        if os.path.exists(output_file):
+            file_size = os.path.getsize(output_file)
+            print(f"✓ 結果已儲存至: {output_file} (大小: {file_size} bytes)")
+        else:
+            print(f"❌ 錯誤: 檔案 {output_file} 未能成功建立")
+            return False, None
+
         print("\n=== 處理完成 ===")
+        print(f"[DEBUG] 準備返回: True, {output_file}")
         return True, output_file
-        
+
     except Exception as e:
         print(f"\n處理過程中發生錯誤: {str(e)}")
+        import traceback
+        print(f"錯誤詳情:\n{traceback.format_exc()}")
         return False, None
 
 
+
 if __name__ == "__main__":
-    # 測試用法
-    test_url = input("請輸入 YouTube 網址: ").strip()
-    if test_url:
-        
+    # 結束會閃退，請通過subprocess執行
+    import sys
+
+    if len(sys.argv) < 2:
+        print("錯誤: 請提供 YouTube 網址作為參數")
+        print("用法: python tool_srt.py <youtube_url>")
+        sys.exit(1)
+
+    test_url = sys.argv[1]
+
+    try:
+        print("[DEBUG] 開始呼叫 yt_srt_generation_wrapper...")
         success, output_file = yt_srt_generation(test_url)
-        
+        print(f"[DEBUG] 函數返回: success={success}, output_file={output_file}")
+
         if success:
             print(f"\n成功！輸出檔案: {output_file}")
+            sys.exit(0)
         else:
             print("\n處理失敗！")
+            sys.exit(1)
+    except Exception as e:
+        print(f"\n[ERROR] 主程式捕獲異常: {str(e)}")
+        import traceback
+        print(f"錯誤詳情:\n{traceback.format_exc()}")
+        sys.exit(2)

@@ -43,7 +43,7 @@ MODEL_MAX_TOKENS = {
 tools = [
     generate_function_description(get_local_time),
     generate_function_description(google_search),
-    generate_function_description(advanced_web_search),
+    # generate_function_description(advanced_web_search),
     generate_function_description(fetch_url_content),
     generate_function_description(do_math),
     generate_function_description(get_youtube_srt),
@@ -853,7 +853,7 @@ async def stream_response(user_input, channel_id,thinking_messages):
                     # 檢查工具回應是否已滿足需求
                     if not check_if_tool_is_still_needed(messages):
                         print(f"[DEBUG] 工具回應已滿足需求，切換到一般對話模式")
-                        messages.append({"role": "system", "content": """依照使用者的問題和工具結果進行完整的回答"""})
+                        messages.append({"role": "system", "content": """依照使用者的問題和工具的結果進行'完整'的回答"""})
                         # 使用包含工具結果的 messages 進行最終回應
                         usable_model = ensure_model_available(GV.current_model)
                         stream = client.chat(

@@ -9,7 +9,7 @@ import ollama
 import subprocess
 import os
 import global_var as GV
-from tool.yt_srt.tool_srt import yt_srt_generation
+from tool.yt_srt.run_srt_tool import run_srt_tool_isolated
 # 儲存當前選擇的模型
 
 client = ollama.Client(host="http://localhost:11434")
@@ -296,8 +296,8 @@ def get_youtube_srt(url: str, user_input: str = "") -> str:
     try:
         # 步驟1: 呼叫 yt_srt_generation 取得字幕檔案
         print(f"[DEBUG] 開始處理 YouTube 影片: {url}")
-        success,  = yt_srt_generation(url)
-        output_file = 'yt_srt.txt'
+        success, output_file = run_srt_tool_isolated(url)
+
         if not success or not output_file:
             return f"無法從 YouTube 影片取得字幕: {url}"
 
@@ -305,6 +305,11 @@ def get_youtube_srt(url: str, user_input: str = "") -> str:
 
         # 步驟2: 讀取字幕檔案內容
         try:
+            # output_file 現在是絕對路徑
+            if not os.path.isabs(output_file):
+                # 如果不是絕對路徑，轉換為絕對路徑
+                output_file = os.path.abspath(output_file)
+
             with open(output_file, 'r', encoding='utf-8') as f:
                 text = f.read()
             print(f"[DEBUG] 成功讀取字幕內容，長度: {len(text)} 字元")
@@ -358,7 +363,8 @@ def get_youtube_srt(url: str, user_input: str = "") -> str:
                 print(f"[DEBUG] 已刪除字幕檔案: {output_file}")
 
             # 刪除對應的 MP3 檔案（如果存在）
-            mp3_file = os.path.splitext(output_file)[0] + ".mp3"
+            # MP3 檔案在相同目錄下
+            mp3_file = os.path.join(os.path.dirname(output_file), "yt.mp3")
             if os.path.exists(mp3_file):
                 os.remove(mp3_file)
                 print(f"[DEBUG] 已刪除 MP3 檔案: {mp3_file}")
