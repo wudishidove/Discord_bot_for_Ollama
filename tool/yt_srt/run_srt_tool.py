@@ -58,6 +58,11 @@ def run_srt_tool_isolated(url):
             pass
             # return False, 'old file not exist'
 
+        # 設定 UTF-8 環境變數
+        env = os.environ.copy()
+        env['PYTHONIOENCODING'] = 'utf-8'
+        env['PYTHONLEGACYWINDOWSSTDIO'] = '0'
+
         # 在 tool/yt_srt 目錄下執行
         result = subprocess.run(
             [sys.executable, "tool_srt.py", url],
@@ -66,7 +71,8 @@ def run_srt_tool_isolated(url):
             encoding='utf-8',
             errors='ignore',
             check=False,  # 不要在非零退出碼時拋出異常
-            cwd=tool_dir  # 設置工作目錄
+            cwd=tool_dir,  # 設置工作目錄
+            env=env  # 添加環境變數
         )
         
 
@@ -128,6 +134,13 @@ def run_srt_tool_isolated(url):
 
     except Exception as e:
         print(f"執行 subprocess 時發生錯誤: {e}")
+        # 即使有錯誤，也檢查檔案是否已經生成
+        expected_output = "D:/OneDrive/code/mygithub/Discord_bot_for_Ollama/tool/yt_srt/yt.txt"
+        if os.path.exists(expected_output):
+            file_size = os.path.getsize(expected_output)
+            if file_size > 0:
+                print(f"雖然有錯誤，但檔案已生成: {expected_output} ({file_size} bytes)")
+                return True, expected_output
         return False, "exception error"
     
 
