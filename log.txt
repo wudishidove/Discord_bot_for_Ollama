@@ -1,28 +1,40 @@
+[debug] File locking is not supported. Proceeding without locking
+[debug] ffmpeg command line: C:\Users\gogo\AppData\Local\yt-dlp-gui\ffprobe -show_streams file:yt.webm
+[debug] ffmpeg command line: C:\Users\gogo\AppData\Local\yt-dlp-gui\ffmpeg -y -loglevel repeat+info -i file:yt.webm -vn -acodec libmp3lame -q:a 0.0 -movflags +faststart file:yt.mp3
+Traceback (most recent call last):
+  File "D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\tool\yt_srt\tool_srt.py", line 288, in yt_srt_generation
+    print(f"\u2713 Gwxs: {output_file} (jp: {file_size} bytes)")
+UnicodeEncodeError: 'cp950' codec can't encode character '\u2713' in position 0: illegal multibyte sequence
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\tool\yt_srt\tool_srt.py", line 318, in <module>
+    success, output_file = yt_srt_generation(test_url)
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\tool\yt_srt\tool_srt.py", line 300, in yt_srt_generation
+    print(f"~Ա:\n{traceback.format_exc()}")
+UnicodeEncodeError: 'cp950' codec can't encode character '\u2713' in position 170: illegal multibyte sequence
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\tool\yt_srt\tool_srt.py", line 330, in <module>
+    print(f"~Ա:\n{traceback.format_exc()}")
+UnicodeEncodeError: 'cp950' codec can't encode character '\u2713' in position 170: illegal multibyte sequence
+
+等待 yt.txt 檔案生成...
+✓ 成功生成 yt.txt (大小: 13297 bytes)，等待時間: 0 秒
 [DEBUG] 成功生成字幕檔案: D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\tool\yt_srt\yt.txt
-[DEBUG] 成功讀取字幕內容，長度: 649 字元
-[DEBUG] 準備使用 Ollama 生成摘要，關鍵詞: 摘要
+[DEBUG] 成功讀取字幕內容，長度: 12881 字元
+[DEBUG] 準備使用 Ollama 生成摘要，關鍵詞: 請摘要影片內容
 [DEBUG] 成功生成摘要
 [DEBUG] 已刪除字幕檔案: D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\tool\yt_srt\yt.txt
 [DEBUG] 已刪除 MP3 檔案: D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\tool\yt_srt\yt.mp3
-[DEBUG] 已輸出摘要到: D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\save_history\yt_summary_20250920_170919.txt
-[DEBUG] 工具結果: 來源: https://www.youtube.com/watch?v=TBB7I6h_wHs
+[DEBUG] 已輸出摘要到: D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\save_history\yt_summary_20250920_184703.txt
+[DEBUG] 工具結果: 來源: https://www.youtube.com/watch?v=NTKC-LExZlI
 
-**Meta Connect 2025 主題演講摘要**
+**影片摘要**
 
-- **地點與時間**：2025 年 9 月 17 日，於加州舉辦的 Meta Connect 2025 主題演講。
-- **演講者**：Meta 執行長馬斯·祖克伯（Mark Zuckerberg）。
-- **新品亮相**：祖克伯佩戴高解析度 AI 智慧眼鏡（Meta Ray‑Ban）並搭配 Meta 神經手環。手環可藉由細微手腕動作輸入文字或模擬空中手寫來回覆訊息。
-- **現場示範**：
-  - 初始操作順利，但於 90 秒內多次嘗試打電話（"What's up video call"）時頻頻失敗，無法接通。祖克伯多次嘗試手勢仍無效，最終只能兩手一攤、表情僵硬地嘗試。
-  - 之後播放《California Dreaming》並大音量播放，示範較順暢。祖克伯將故障歸因於現場 Wi‑Fi 不穩。
-- **產品未來定位**：祖克伯強調未來這些裝置將深度整合代理型 AI，提供更多互動體驗。
-- **上市資訊**：
-  - 裝置預計於 9 月 30 日開賣，售價約新台幣 2.6 萬元。
-  - 是否能在真實情境中穩定運作仍需時間驗證。
-[DEBUG] check_if_tool_is_still_needed 判斷結果: false
-[DEBUG] 工具回應已滿足需求，切換到一般對話模式
-[ERROR] stream_response 發生錯誤: error parsing tool call: raw='search({"query":"TBB7I6h_wHs video summary meta connect 2025","topn":5,"source":"news"}', err=invalid character 's' looking for beginning of value (status code: -1)
-[2025-09-20 17:09:26] [INFO    ] discord.gateway: Shard ID None has successfully RESUMED session 3d1fb29ac973f7519b75d97485f9e791.
-[DEBUG] Full response processed: ❌ [ERROR] stream_response 發生錯誤: error parsing tool call: raw='search({"query":"TBB7I6h_wHs video summary meta connect 2025","topn":5,"source":"news"}', err=invalid character 's' looking for beginning of value (status code: -1)
-[DEBUG] 頻道 1073495605286027267 的記憶已保存到 save_history\1073495605286027267\history.json
-
+- **產品概述**
+  影片作者試戴 Meta 新款 $799 的 Ray‑Ban 透明顯示智慧眼鏡。

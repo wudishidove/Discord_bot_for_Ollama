@@ -28,33 +28,28 @@ def download_youtube_mp3(url: str, output_dir: str = ".", use_cookie: bool = Fal
         print(f"錯誤: 找不到cookie文件: {cookie_path}")
         return False, None
     
-    # 切換到輸出目錄
-    original_dir = os.getcwd()
-    if output_dir != ".":
-        os.makedirs(output_dir, exist_ok=True)
-        os.chdir(output_dir)
-    
+    # 使用絕對路徑，不切換目錄
+    if not os.path.isabs(output_dir):
+        output_dir = os.path.abspath(output_dir)
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    # 優先使用yt_dlp模組
     try:
-        # 優先使用yt_dlp模組
-        try:
-            import yt_dlp
-            return _download_with_module(url, use_cookie, cookie_path)
-        except ImportError:
-            print("未安裝yt_dlp模組，嘗試使用外部yt-dlp...")
-            return _download_with_cli(url, use_cookie, cookie_path)
-            
-    finally:
-        # 恢復原始目錄
-        os.chdir(original_dir)
+        import yt_dlp
+        return _download_with_module(url, use_cookie, cookie_path, output_dir)
+    except ImportError:
+        print("未安裝yt_dlp模組，嘗試使用外部yt-dlp...")
+        return _download_with_cli(url, use_cookie, cookie_path, output_dir)
 
 
-def _download_with_module(url: str, use_cookie: bool, cookie_path: str) -> tuple[bool, str | None]:
+def _download_with_module(url: str, use_cookie: bool, cookie_path: str, output_dir: str) -> tuple[bool, str | None]:
     """使用yt_dlp模組下載"""
     import yt_dlp
     
-    # 檢查下載前的文件列表
-    files_before = set(os.listdir('.'))
-    print(f"下載前文件數量: {len(files_before)}")
+    # 檢查下載前的文件列表（在輸出目錄）
+    files_before = set(os.listdir(output_dir))
+    print(f"下載前文件數量 (在 {output_dir}): {len(files_before)}")
     
     # 檢查ffmpeg
     ffmpeg_path = shutil.which('ffmpeg')
@@ -64,7 +59,7 @@ def _download_with_module(url: str, use_cookie: bool, cookie_path: str) -> tuple
         print("警告: 未找到ffmpeg，轉檔可能會失敗。")
     
     ydl_opts = {
-        'outtmpl': 'yt.%(ext)s',
+        'outtmpl': os.path.join(output_dir, 'yt.%(ext)s'),
         'format': 'bestaudio/best',
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
@@ -93,22 +88,22 @@ def _download_with_module(url: str, use_cookie: bool, cookie_path: str) -> tuple
             except UnicodeEncodeError:
                 print("視頻信息: 標題包含特殊字符，無法顯示")
             
-            # 檢查下載後的文件
-            files_after = set(os.listdir('.'))
+            # 檢查下載後的文件（在輸出目錄）
+            files_after = set(os.listdir(output_dir))
             new_files = files_after - files_before
             print(f"下載後文件數量變化: {len(files_after) - len(files_before)}")
-            
+
             # 直接驗證 MP3 文件是否存在（這是最可靠的方法）
-            mp3_files = [f for f in os.listdir('.') if f.lower().endswith('.mp3')]
-            if mp3_files:
-                print(f"SUCCESS: 成功生成 MP3 文件: yt.mp3")
-                return True, "yt.mp3"  # 返回固定的 MP3 文件名
+            mp3_path = os.path.join(output_dir, "yt.mp3")
+            if os.path.exists(mp3_path):
+                print(f"SUCCESS: 成功生成 MP3 文件: {mp3_path}")
+                return True, mp3_path  # 返回完整路徑
             else:
                 # 檢查是否有其他音頻格式
-                audio_files = [f for f in os.listdir('.') if f.lower().endswith(('.mp3', '.m4a', '.webm', '.ogg'))]
+                audio_files = [f for f in os.listdir(output_dir) if f.lower().endswith(('.mp3', '.m4a', '.webm', '.ogg'))]
                 if audio_files:
                     print(f"找到音頻文件但非 MP3 格式: {audio_files}")
-                print("ERROR: 沒有找到 MP3 文件")
+                print(f"ERROR: 沒有找到 MP3 文件於: {mp3_path}")
                 return False, None
                 
     except Exception as e:
@@ -118,7 +113,7 @@ def _download_with_module(url: str, use_cookie: bool, cookie_path: str) -> tuple
         return False, None
 
 
-def _download_with_cli(url: str, use_cookie: bool, cookie_path: str) -> tuple[bool, str | None]:
+def _download_with_cli(url: str, use_cookie: bool, cookie_path: str, output_dir: str) -> tuple[bool, str | None]:
     """使用外部yt-dlp命令行工具下載"""
     cli = _find_yt_dlp_cli()
     if not cli:
@@ -131,6 +126,7 @@ def _download_with_cli(url: str, use_cookie: bool, cookie_path: str) -> tuple[bo
         '--extract-audio',
         '--audio-format', 'mp3',
         '--audio-quality', '0',
+        '-o', os.path.join(output_dir, 'yt.%(ext)s'),  # 指定輸出路徑
         url,
     ]
     
@@ -155,12 +151,12 @@ def _download_with_cli(url: str, use_cookie: bool, cookie_path: str) -> tuple[bo
         
         if proc.returncode == 0:
             # 檢查 MP3 文件
-            mp3_files = [f for f in os.listdir('.') if f.lower().endswith('.mp3')]
-            if mp3_files:
-                print("下載完成！")
-                return True, "yt.mp3"
+            mp3_path = os.path.join(output_dir, "yt.mp3")
+            if os.path.exists(mp3_path):
+                print(f"下載完成！{mp3_path}")
+                return True, mp3_path
             else:
-                print("下載完成但未找到 MP3 文件")
+                print(f"下載完成但未找到 MP3 文件於: {mp3_path}")
                 return False, None
         else:
             print("下載失敗")
@@ -213,13 +209,15 @@ def yt_srt_generation(url: str) -> tuple[bool, str | None]:
     try:
         # 步驟 1: 下載 MP3
         print("\n=== 步驟 1: 下載 MP3 ===")
-        success, mp3_filename = download_youtube_mp3(url, output_dir=".")
+        # 使用當前目錄作為輸出目錄
+        output_dir = os.path.abspath(".")
+        success, mp3_path = download_youtube_mp3(url, output_dir=output_dir)
         
-        if not success or not mp3_filename:
+        if not success or not mp3_path:
             print("MP3 下載失敗")
             return False, None
-            
-        print(f"MP3 下載成功: yt.mp3")
+
+        print(f"MP3 下載成功: {mp3_path}")
         
         # 步驟 2: 載入 Whisper 模型
         print("\n=== 步驟 2: 載入 Whisper 模型 ===")
@@ -238,9 +236,9 @@ def yt_srt_generation(url: str) -> tuple[bool, str | None]:
         # 處理語言參數
         transcribe_language = None if language == "auto" else language
         
-        print("開始轉錄...")
+        print(f"開始轉錄: {mp3_path}")
         segments, info = model.transcribe(
-            "yt.mp3",
+            mp3_path,
             beam_size=8,
             language=transcribe_language,
             initial_prompt="如果語言是中文，輸出繁體中文"  # 空白提示詞
@@ -274,8 +272,9 @@ def yt_srt_generation(url: str) -> tuple[bool, str | None]:
         
         # 步驟 5: 儲存結果
         print("\n=== 步驟 5: 儲存結果 ===")
-        # 固定使用 yt.txt 作為輸出檔案名
-        output_file = "yt.txt"
+        # 固定使用 yt.txt 作為輸出檔案名（絕對路徑）
+        output_file = os.path.join(output_dir, "yt.txt")
+        print(f"準備寫入檔案: {output_file}")
 
         with open(output_file, "w", encoding="utf-8") as file:
             file.write(transcription)
@@ -285,19 +284,22 @@ def yt_srt_generation(url: str) -> tuple[bool, str | None]:
         # 確認檔案已成功寫入
         if os.path.exists(output_file):
             file_size = os.path.getsize(output_file)
-            print(f"✓ 結果已儲存至: {output_file} (大小: {file_size} bytes)")
+            print(f"[OK] 結果已儲存至: {output_file} (大小: {file_size} bytes)")
         else:
-            print(f"❌ 錯誤: 檔案 {output_file} 未能成功建立")
+            print(f"[ERROR] 檔案 {output_file} 未能成功建立")
             return False, None
 
         print("\n=== 處理完成 ===")
-        print(f"[DEBUG] 準備返回: True, {output_file}")
-        return True, output_file
+        # 確保返回絕對路徑
+        absolute_output = os.path.abspath(output_file)
+        print(f"[DEBUG] 輸出檔案絕對路徑: {absolute_output}")
+        print(f"[DEBUG] 準備返回: True, {absolute_output}")
+        return True, absolute_output
 
     except Exception as e:
         print(f"\n處理過程中發生錯誤: {str(e)}")
         import traceback
-        print(f"錯誤詳情:\n{traceback.format_exc()}")
+        print(f"錯誤詳情:\n{traceback.format_exc().encode('utf-8', 'ignore').decode('utf-8')}")
         return False, None
 
 
@@ -327,5 +329,5 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\n[ERROR] 主程式捕獲異常: {str(e)}")
         import traceback
-        print(f"錯誤詳情:\n{traceback.format_exc()}")
+        print(f"錯誤詳情:\n{traceback.format_exc().encode('utf-8', 'ignore').decode('utf-8')}")
         sys.exit(2)

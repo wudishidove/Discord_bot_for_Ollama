@@ -13,6 +13,26 @@ from tool.yt_srt.run_srt_tool import run_srt_tool_isolated
 # 儲存當前選擇的模型
 
 client = ollama.Client(host="http://localhost:11434")
+
+def get_base_dir():
+    """獲取 Discord_bot_for_Ollama 基礎目錄"""
+    # 嘗試從 __file__ 獲取
+    if '__file__' in globals():
+        base = os.path.dirname(os.path.abspath(__file__))
+        if "Discord_bot_for_Ollama" in base:
+            return base
+
+    # 否則使用當前工作目錄
+    cwd = os.getcwd()
+    if "Discord_bot_for_Ollama" in cwd:
+        return cwd
+
+    # 最後嘗試硬編碼路徑
+    fallback = r"D:\OneDrive\code\mygithub\Discord_bot_for_Ollama"
+    if os.path.exists(fallback):
+        return fallback
+
+    return cwd
 def generate_function_description(func):
     func_name = func.__name__
     docstring = func.__doc__
@@ -299,16 +319,17 @@ def get_youtube_srt(url: str, user_input: str = "") -> str:
         success, output_file = run_srt_tool_isolated(url)
 
         if not success or not output_file:
-            return f"無法從 YouTube 影片取得字幕: {url}"
-
+            return f"YouTube srt failed,success: {success},txt: {output_file}"
+        
+    
         print(f"[DEBUG] 成功生成字幕檔案: {output_file}")
-
+        
         # 步驟2: 讀取字幕檔案內容
         try:
-            # output_file 現在是絕對路徑
-            if not os.path.isabs(output_file):
-                # 如果不是絕對路徑，轉換為絕對路徑
-                output_file = os.path.abspath(output_file)
+            # 改進路徑處理，嘗試多種可能的路徑
+            if not os.path.exists(output_file):
+                
+                return f"can't find srt file,try paths: {output_file}"
 
             with open(output_file, 'r', encoding='utf-8') as f:
                 text = f.read()
@@ -392,7 +413,7 @@ def get_youtube_srt(url: str, user_input: str = "") -> str:
     except Exception as e:
         return f"處理 YouTube 影片時發生錯誤: {str(e)}"
 
-def check_if_tool_is_still_needed(messages: list) -> bool:
+def check_if_tool_is_still_needed(tool_name: str, messages: list) -> bool:
     """
     檢查工具的回傳是否已經滿足使用者的問題
 
@@ -403,6 +424,8 @@ def check_if_tool_is_still_needed(messages: list) -> bool:
         True: 仍需要調用更多工具
         False: 工具回應已滿足使用者需求，可以進入一般對話模式
     """
+    if tool_name == 'get_youtube_srt':
+        return False
     try:
         # 提取最近的使用者問題
         user_question = None

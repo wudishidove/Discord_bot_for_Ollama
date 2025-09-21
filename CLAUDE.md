@@ -10,9 +10,21 @@ python bot_with_history.py
 ```
 
 ### Installing Dependencies
+
+**Core Dependencies**
 ```bash
 pip install discord.py langchain requests pymupdf4llm ollama
 ```
+
+**YouTube Subtitle Tool Dependencies**
+```bash
+pip install faster-whisper torch yt-dlp
+```
+
+**System Requirements**
+- FFmpeg: Required for audio conversion (must be in PATH or install via `pip install ffmpeg-python`)
+- CUDA (optional): For GPU acceleration of Whisper transcription
+- Disk space: ~6GB for Whisper large-v3 model download
 
 ## Code Architecture
 
@@ -27,8 +39,62 @@ pip install discord.py langchain requests pymupdf4llm ollama
 
 **Tool System (`ollama_tool.py`)**
 - Function calling framework for LLM tools
-- Built-in tools: Google search, web scraping, math calculations, time/date
+- Built-in tools: Google search, web scraping, math calculations, time/date, YouTube subtitle extraction
 - Dynamic function description generation using introspection
+
+### YouTube Subtitle Tool System
+
+**Architecture Overview**
+The YouTube subtitle extraction tool provides automated transcription of YouTube videos using a two-layer architecture for crash protection and reliability.
+
+**Components**
+
+1. **Subprocess Wrapper (`tool/yt_srt/run_srt_tool.py`)**
+   - Isolates the main transcription process using subprocess to prevent crashes from affecting the bot
+   - Manages file paths with absolute path resolution for Windows compatibility
+   - Monitors output file generation with 300-second timeout protection
+   - Returns `(success: bool, output_path: str | None)` tuple
+   - Automatically checks for existing `yt.txt` files to avoid redundant processing
+
+2. **Core Processor (`tool/yt_srt/tool_srt.py`)**
+   - **Video Download**: Uses yt-dlp (module or CLI fallback) to download YouTube audio as MP3
+   - **Transcription**: Leverages OpenAI Whisper large-v3 model via faster_whisper
+   - **Language Support**: Auto-detection or manual specification
+   - **Output Formats**:
+     - `normal`: Plain text with comma separation
+     - `timeline`: Text with timestamps `[start -> end] text`
+     - `subtitle`: Standard SRT format with numbered entries
+   - **GPU Acceleration**: Automatic CUDA detection for faster processing
+
+**Integration with Bot**
+- Function: `get_youtube_srt(url: str, user_input: str = "") -> str` in `ollama_tool.py`
+- Automatically triggered by keywords in user messages
+- Returns transcribed text content or error messages
+
+**File Management**
+```
+tool/yt_srt/
+├── run_srt_tool.py       # Subprocess wrapper for crash isolation
+├── tool_srt.py           # Core transcription logic
+├── yt.mp3                # Downloaded audio (temporary)
+└── yt.txt                # Transcription output
+```
+
+**Processing Flow**
+1. User provides YouTube URL
+2. `run_srt_tool_isolated()` spawns subprocess with `tool_srt.py`
+3. Downloads MP3 using yt-dlp with ffmpeg conversion
+4. Loads Whisper large-v3 model (CUDA/CPU auto-detection)
+5. Transcribes audio with beam search (beam_size=8)
+6. Saves transcription to `yt.txt`
+7. Parent process monitors and returns file path
+
+**Error Handling**
+- Subprocess crash isolation prevents bot termination
+- 5-minute timeout for long videos
+- Fallback from yt-dlp module to CLI tool
+- Cookie support for age-restricted videos
+- File existence validation at each step
 
 **Global Variables (`global_var.py`)**
 - Stores current model selection (default: "gpt-oss:latest")

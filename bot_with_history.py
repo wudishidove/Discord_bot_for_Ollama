@@ -851,34 +851,44 @@ async def stream_response(user_input, channel_id,thinking_messages):
                             messages.append({"role": "tool", "content": f"Error: {str(e)}"})
 
                     # 檢查工具回應是否已滿足需求
-                    if not check_if_tool_is_still_needed(messages):
-                        print(f"[DEBUG] 工具回應已滿足需求，切換到一般對話模式")
-                        messages.append({"role": "system", "content": """依照使用者的問題和工具的結果進行完整的回答，不能用...結尾"""})
-                        # 使用包含工具結果的 messages 進行最終回應
-                        usable_model = ensure_model_available(GV.current_model)
-                        stream = client.chat(
-                            model=usable_model,
-                            messages=messages,
-                            stream=True
-                        )
+                    if not check_if_tool_is_still_needed(tool_name,messages):
+                        print(f"[DEBUG] 工具回應已滿足需求")
 
-                        final_buffer = ""
-                        last_update_time = time.time()
+                        # 如果是 get_youtube_srt 工具，直接輸出完整結果
+                        if tool_name == 'get_youtube_srt':
+                            print(f"[DEBUG] 檢測到 get_youtube_srt 工具，直接輸出完整結果")
+                            # 直接輸出完整的工具結果
+                            yield result
+                            break  # 跳出 while True 循環
+                        else:
+                            # 其他工具保持原有邏輯
+                            print(f"[DEBUG] 切換到一般對話模式")
+                            messages.append({"role": "system", "content": """依照使用者的問題和工具的結果進行完整的回答，不能用...結尾"""})
+                            # 使用包含工具結果的 messages 進行最終回應
+                            usable_model = ensure_model_available(GV.current_model)
+                            stream = client.chat(
+                                model=usable_model,
+                                messages=messages,
+                                stream=True
+                            )
 
-                        for chunk in stream:
-                            if 'message' in chunk and 'content' in chunk['message']:
-                                new_text = chunk['message']['content']
-                                if new_text:
-                                    final_buffer += new_text
-                                    # 每0.5秒更新一次，確保逐步輸出
-                                    if time.time() - last_update_time >= 0.5 and final_buffer:
-                                        yield final_buffer
-                                        last_update_time = time.time()
+                            final_buffer = ""
+                            last_update_time = time.time()
 
-                        # 確保最後的內容也被傳送出去
-                        if final_buffer:
-                            yield final_buffer
-                        break  # 跳出 while True 循環
+                            for chunk in stream:
+                                if 'message' in chunk and 'content' in chunk['message']:
+                                    new_text = chunk['message']['content']
+                                    if new_text:
+                                        final_buffer += new_text
+                                        # 每0.5秒更新一次，確保逐步輸出
+                                        if time.time() - last_update_time >= 0.5 and final_buffer:
+                                            yield final_buffer
+                                            last_update_time = time.time()
+
+                            # 確保最後的內容也被傳送出去
+                            if final_buffer:
+                                yield final_buffer
+                            break  # 跳出 while True 循環
                 else:
                     # 沒有工具調用，結束循環
                     break
