@@ -316,26 +316,40 @@ def get_youtube_srt(url: str, user_input: str = "") -> str:
     try:
         # 步驟1: 呼叫 yt_srt_generation 取得字幕檔案
         print(f"[DEBUG] 開始處理 YouTube 影片: {url}")
-        success, output_file = run_srt_tool_isolated(url)
+        success, output_dir = run_srt_tool_isolated(url)
 
-        if not success or not output_file:
-            return f"YouTube srt failed,success: {success},txt: {output_file}"
-        
-    
-        print(f"[DEBUG] 成功生成字幕檔案: {output_file}")
-        
-        # 步驟2: 讀取字幕檔案內容
+        if not success or not output_dir:
+            return f"YouTube srt failed,success: {success},dir: {output_dir}"
+
+        print(f"[DEBUG] 成功生成字幕，目錄: {output_dir}")
+
+        # 步驟2: 讀取 download_data 目錄中的所有字幕檔案
         try:
-            # 改進路徑處理，嘗試多種可能的路徑
-            if not os.path.exists(output_file):
-                
-                return f"can't find srt file,try paths: {output_file}"
+            if not os.path.exists(output_dir):
+                return f"can't find output directory: {output_dir}"
 
-            with open(output_file, 'r', encoding='utf-8') as f:
-                text = f.read()
-            print(f"[DEBUG] 成功讀取字幕內容，長度: {len(text)} 字元")
+            # 找到所有 .txt 檔案
+            txt_files = sorted([f for f in os.listdir(output_dir) if f.endswith('.txt')])
+
+            if not txt_files:
+                return f"No txt files found in {output_dir}"
+
+            print(f"[DEBUG] 找到 {len(txt_files)} 個字幕檔案: {txt_files}")
+
+            # 讀取並合併所有字幕內容
+            combined_text = ""
+            for txt_file in txt_files:
+                txt_path = os.path.join(output_dir, txt_file)
+                with open(txt_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    # 只添加檔案內容，不加分隔符以保持連續性
+                    combined_text += content + " "
+                    print(f"[DEBUG] 讀取 {txt_file}: {len(content)} 字元")
+
+            text = combined_text.strip()
+            print(f"[DEBUG] 合併後字幕內容長度: {len(text)} 字元")
         except Exception as e:
-            return f"無法讀取字幕檔案 {output_file}: {str(e)}"
+            return f"無法讀取字幕檔案: {str(e)}"
 
         # 步驟3: 如果有使用者輸入，使用 LLM 生成相關摘要
         if user_input or text:
@@ -376,19 +390,25 @@ def get_youtube_srt(url: str, user_input: str = "") -> str:
             # 如果沒有文本內容
             summary = "無法取得字幕內容"
 
-        # 步驟4: 清理臨時檔案
+        # 步驟4: 清理臨時檔案（清理 download_data 目錄中的所有檔案）
         try:
-            # 刪除生成的字幕檔案
-            if os.path.exists(output_file):
-                os.remove(output_file)
-                print(f"[DEBUG] 已刪除字幕檔案: {output_file}")
+            if os.path.exists(output_dir):
+                # 刪除所有 txt 檔案
+                for txt_file in txt_files:
+                    txt_path = os.path.join(output_dir, txt_file)
+                    if os.path.exists(txt_path):
+                        os.remove(txt_path)
+                        print(f"[DEBUG] 已刪除字幕檔案: {txt_file}")
 
-            # 刪除對應的 MP3 檔案（如果存在）
-            # MP3 檔案在相同目錄下
-            mp3_file = os.path.join(os.path.dirname(output_file), "yt.mp3")
-            if os.path.exists(mp3_file):
-                os.remove(mp3_file)
-                print(f"[DEBUG] 已刪除 MP3 檔案: {mp3_file}")
+                # 刪除所有 mp3 檔案
+                mp3_files = [f for f in os.listdir(output_dir) if f.endswith('.mp3')]
+                for mp3_file in mp3_files:
+                    mp3_path = os.path.join(output_dir, mp3_file)
+                    if os.path.exists(mp3_path):
+                        os.remove(mp3_path)
+                        print(f"[DEBUG] 已刪除 MP3 檔案: {mp3_file}")
+
+                print(f"[DEBUG] 已清理 download_data 目錄")
 
         except Exception as e:
             print(f"[DEBUG] 清理檔案時發生錯誤: {str(e)}")

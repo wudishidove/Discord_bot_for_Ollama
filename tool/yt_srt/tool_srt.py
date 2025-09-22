@@ -5,7 +5,89 @@ import os
 import re
 import shutil
 import subprocess
+from pydub import AudioSegment
+import math
 
+
+def clean_download_data_dir(download_dir: str):
+    """清理 download_data 目錄中的舊檔案"""
+    if os.path.exists(download_dir):
+        for file in os.listdir(download_dir):
+            file_path = os.path.join(download_dir, file)
+            try:
+                if os.path.isfile(file_path):
+                    os.remove(file_path)
+                    print(f"已刪除舊檔案: {file}")
+            except Exception as e:
+                print(f"刪除檔案 {file} 失敗: {e}")
+    else:
+        os.makedirs(download_dir, exist_ok=True)
+        print(f"已建立目錄: {download_dir}")
+
+def slice_audio_with_overlap(mp3_path: str, download_dir: str) -> list[str]:
+    """
+    將超過10分鐘的音頻切片，每片11分鐘，片段間重疊2分鐘
+
+    Args:
+        mp3_path: 原始MP3檔案路徑
+        download_dir: 儲存切片的目錄
+
+    Returns:
+        切片檔案路徑列表
+    """
+    try:
+        print(f"\n=== 音頻切片處理 ===")
+        audio = AudioSegment.from_mp3(mp3_path)
+        duration_ms = len(audio)
+        duration_min = duration_ms / 1000 / 60
+
+        print(f"音頻總長度: {duration_min:.2f} 分鐘")
+
+        # 如果小於等於10分鐘，不需要切片
+        if duration_min <= 10:
+            print("音頻長度 <= 10分鐘，不需要切片")
+            return [mp3_path]
+
+        # 計算切片參數
+        segment_duration = 11 * 60 * 1000  # 11分鐘（毫秒）
+        step_duration = 9 * 60 * 1000      # 步進9分鐘（重疊2分鐘）
+
+        sliced_files = []
+        part_index = 0
+        start_time = 0
+
+        while start_time < duration_ms:
+            # 計算結束時間
+            end_time = min(start_time + segment_duration, duration_ms)
+
+            # 提取片段
+            segment = audio[start_time:end_time]
+
+            # 儲存片段
+            part_filename = f"yt_part_{part_index}.mp3"
+            part_path = os.path.join(download_dir, part_filename)
+            segment.export(part_path, format="mp3")
+
+            segment_min = (end_time - start_time) / 1000 / 60
+            print(f"已生成片段 {part_index}: {start_time/1000/60:.2f}-{end_time/1000/60:.2f}分鐘 (長度: {segment_min:.2f}分鐘)")
+
+            sliced_files.append(part_path)
+
+            # 如果已到達結尾，停止
+            if end_time >= duration_ms:
+                break
+
+            # 移動到下一個片段（步進9分鐘）
+            start_time += step_duration
+            part_index += 1
+
+        print(f"總共生成 {len(sliced_files)} 個片段")
+        return sliced_files
+
+    except Exception as e:
+        print(f"音頻切片失敗: {e}")
+        # 如果切片失敗，返回原始檔案
+        return [mp3_path]
 
 def download_youtube_mp3(url: str, output_dir: str = ".", use_cookie: bool = False, cookie_path: str = "") -> tuple[bool, str | None]:
     """
@@ -58,8 +140,12 @@ def _download_with_module(url: str, use_cookie: bool, cookie_path: str, output_d
     else:
         print("警告: 未找到ffmpeg，轉檔可能會失敗。")
     
+    # 確保使用 download_data 目錄
+    download_dir = os.path.join(output_dir, "download_data")
+    os.makedirs(download_dir, exist_ok=True)
+
     ydl_opts = {
-        'outtmpl': os.path.join(output_dir, 'yt.%(ext)s'),
+        'outtmpl': os.path.join(download_dir, 'yt.%(ext)s'),
         'format': 'bestaudio/best',
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
@@ -94,13 +180,13 @@ def _download_with_module(url: str, use_cookie: bool, cookie_path: str, output_d
             print(f"下載後文件數量變化: {len(files_after) - len(files_before)}")
 
             # 直接驗證 MP3 文件是否存在（這是最可靠的方法）
-            mp3_path = os.path.join(output_dir, "yt.mp3")
+            mp3_path = os.path.join(download_dir, "yt.mp3")
             if os.path.exists(mp3_path):
                 print(f"SUCCESS: 成功生成 MP3 文件: {mp3_path}")
                 return True, mp3_path  # 返回完整路徑
             else:
                 # 檢查是否有其他音頻格式
-                audio_files = [f for f in os.listdir(output_dir) if f.lower().endswith(('.mp3', '.m4a', '.webm', '.ogg'))]
+                audio_files = [f for f in os.listdir(download_dir) if f.lower().endswith(('.mp3', '.m4a', '.webm', '.ogg'))]
                 if audio_files:
                     print(f"找到音頻文件但非 MP3 格式: {audio_files}")
                 print(f"ERROR: 沒有找到 MP3 文件於: {mp3_path}")
@@ -126,7 +212,7 @@ def _download_with_cli(url: str, use_cookie: bool, cookie_path: str, output_dir:
         '--extract-audio',
         '--audio-format', 'mp3',
         '--audio-quality', '0',
-        '-o', os.path.join(output_dir, 'yt.%(ext)s'),  # 指定輸出路徑
+        '-o', os.path.join(output_dir, 'download_data', 'yt.%(ext)s'),  # 指定輸出路徑
         url,
     ]
     
@@ -151,7 +237,7 @@ def _download_with_cli(url: str, use_cookie: bool, cookie_path: str, output_dir:
         
         if proc.returncode == 0:
             # 檢查 MP3 文件
-            mp3_path = os.path.join(output_dir, "yt.mp3")
+            mp3_path = os.path.join(output_dir, "download_data", "yt.mp3")
             if os.path.exists(mp3_path):
                 print(f"下載完成！{mp3_path}")
                 return True, mp3_path
@@ -181,10 +267,10 @@ def _find_yt_dlp_cli() -> str | None:
 def yt_srt_generation(url: str) -> tuple[bool, str | None]:
     """
     自動下載 YouTube MP3 並生成對應的 SRT 或文字檔
-    
+
     Args:
         url: YouTube 網址
-        
+
     Returns:
         tuple[bool, str | None]: (成功與否, 輸出檔案名或None)
     """
@@ -192,32 +278,43 @@ def yt_srt_generation(url: str) -> tuple[bool, str | None]:
     mode = "normal"
     # 設置環境變數
     os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-    
+
     # 參數驗證
     if not url.strip():
         print("錯誤: 請提供有效的 YouTube 網址")
         return False, None
-    
+
     if mode not in ["normal", "timeline", "subtitle"]:
         print(f"錯誤: 不支援的輸出模式 '{mode}'，支援的模式: normal, timeline, subtitle")
         return False, None
-    
+
     print(f"開始處理 YouTube 影片: {url}")
     print(f"語言設定: {language}")
     print(f"輸出模式: {mode}")
-    
+
     try:
+        # 設定目錄路徑
+        output_dir = os.path.abspath(".")
+        download_dir = os.path.join(output_dir, "download_data")
+
+        # 清理舊檔案
+        print("\n=== 清理舊檔案 ===")
+        clean_download_data_dir(download_dir)
+
         # 步驟 1: 下載 MP3
         print("\n=== 步驟 1: 下載 MP3 ===")
-        # 使用當前目錄作為輸出目錄
-        output_dir = os.path.abspath(".")
         success, mp3_path = download_youtube_mp3(url, output_dir=output_dir)
-        
+
         if not success or not mp3_path:
             print("MP3 下載失敗")
             return False, None
 
         print(f"MP3 下載成功: {mp3_path}")
+
+        # 步驟 1.5: 音頻切片（如果需要）
+        print("\n=== 步驟 1.5: 檢查是否需要切片 ===")
+        mp3_files = slice_audio_with_overlap(mp3_path, download_dir)
+        print(f"要處理的音頻檔案: {len(mp3_files)} 個")
         
         # 步驟 2: 載入 Whisper 模型
         print("\n=== 步驟 2: 載入 Whisper 模型 ===")
@@ -230,71 +327,79 @@ def yt_srt_generation(url: str) -> tuple[bool, str | None]:
         model = WhisperModel("large-v3", device=device, compute_type=compute_type)
         print("模型載入完成")
         
-        # 步驟 3: 轉錄音頻
+        # 步驟 3: 轉錄所有音頻檔案
         print("\n=== 步驟 3: 轉錄音頻 ===")
-        
+
         # 處理語言參數
         transcribe_language = None if language == "auto" else language
-        
-        print(f"開始轉錄: {mp3_path}")
-        segments, info = model.transcribe(
-            mp3_path,
-            beam_size=8,
-            language=transcribe_language,
-            initial_prompt="如果語言是中文，輸出繁體中文"  # 空白提示詞
-        )
-        
-        print(f"轉錄完成，音頻總長度: {round(info.duration, 2)} 秒")
-        
-        # 步驟 4: 處理轉錄結果
-        print("\n=== 步驟 4: 處理轉錄結果 ===")
-        transcription = ""
-        segment_count = 0
-        
-        for i, segment in enumerate(segments, 1):
-            segment_count += 1
-            
-            if mode == "normal":
-                transcription += segment.text + "，"
-            elif mode == "timeline":
-                transcription += "[%.2fs -> %.2fs] %s\n" % (segment.start, segment.end, segment.text)
-            elif mode == "subtitle":
-                # SRT 格式處理
-                start_hours, start_remainder = divmod(segment.start, 3600)
-                start_minutes, start_seconds = divmod(start_remainder, 60)
-                end_hours, end_remainder = divmod(segment.end, 3600)
-                end_minutes, end_seconds = divmod(end_remainder, 60)
-                start_time = f"{int(start_hours):02d}:{int(start_minutes):02d}:{start_seconds:06.3f}".replace('.', ',')
-                end_time = f"{int(end_hours):02d}:{int(end_minutes):02d}:{end_seconds:06.3f}".replace('.', ',')
-                transcription += f"{i}\n{start_time} --> {end_time}\n{segment.text}\n\n"
-        
-        print(f"處理了 {segment_count} 個音頻片段")
-        
-        # 步驟 5: 儲存結果
-        print("\n=== 步驟 5: 儲存結果 ===")
-        # 固定使用 yt.txt 作為輸出檔案名（絕對路徑）
-        output_file = os.path.join(output_dir, "yt.txt")
-        print(f"準備寫入檔案: {output_file}")
 
-        with open(output_file, "w", encoding="utf-8") as file:
-            file.write(transcription)
-            file.flush()  # 強制寫入磁碟
-            os.fsync(file.fileno())  # 確保檔案系統同步
+        output_files = []
 
-        # 確認檔案已成功寫入
-        if os.path.exists(output_file):
-            file_size = os.path.getsize(output_file)
-            print(f"[OK] 結果已儲存至: {output_file} (大小: {file_size} bytes)")
+        # 處理每個音頻檔案
+        for idx, mp3_file in enumerate(mp3_files):
+            print(f"\n--- 處理檔案 {idx+1}/{len(mp3_files)}: {os.path.basename(mp3_file)} ---")
+
+            print(f"開始轉錄: {mp3_file}")
+            segments, info = model.transcribe(
+                mp3_file,
+                beam_size=8,
+                language=transcribe_language,
+                initial_prompt="如果語言是中文，輸出繁體中文"
+            )
+
+            print(f"轉錄完成，音頻長度: {round(info.duration, 2)} 秒")
+
+            # 處理轉錄結果
+            transcription = ""
+            segment_count = 0
+
+            for i, segment in enumerate(segments, 1):
+                segment_count += 1
+
+                if mode == "normal":
+                    transcription += segment.text + "，"
+                elif mode == "timeline":
+                    transcription += "[%.2fs -> %.2fs] %s\n" % (segment.start, segment.end, segment.text)
+                elif mode == "subtitle":
+                    # SRT 格式處理
+                    start_hours, start_remainder = divmod(segment.start, 3600)
+                    start_minutes, start_seconds = divmod(start_remainder, 60)
+                    end_hours, end_remainder = divmod(segment.end, 3600)
+                    end_minutes, end_seconds = divmod(end_remainder, 60)
+                    start_time = f"{int(start_hours):02d}:{int(start_minutes):02d}:{start_seconds:06.3f}".replace('.', ',')
+                    end_time = f"{int(end_hours):02d}:{int(end_minutes):02d}:{end_seconds:06.3f}".replace('.', ',')
+                    transcription += f"{i}\n{start_time} --> {end_time}\n{segment.text}\n\n"
+
+            print(f"處理了 {segment_count} 個音頻片段")
+
+            # 儲存結果
+            # 根據音頻檔案名生成輸出檔案名
+            base_name = os.path.basename(mp3_file).replace('.mp3', '.txt')
+            output_file = os.path.join(download_dir, base_name)
+
+            print(f"儲存至: {output_file}")
+
+            with open(output_file, "w", encoding="utf-8") as file:
+                file.write(transcription)
+                file.flush()
+                os.fsync(file.fileno())
+
+            # 確認檔案已成功寫入
+            if os.path.exists(output_file):
+                file_size = os.path.getsize(output_file)
+                print(f"[OK] 結果已儲存 (大小: {file_size} bytes)")
+                output_files.append(output_file)
+            else:
+                print(f"[ERROR] 檔案 {output_file} 未能成功建立")
+
+        print(f"\n=== 處理完成 ===")
+        print(f"總共生成 {len(output_files)} 個字幕檔案")
+
+        if output_files:
+            # 返回成功狀態和 download_data 目錄路徑
+            return True, download_dir
         else:
-            print(f"[ERROR] 檔案 {output_file} 未能成功建立")
             return False, None
-
-        print("\n=== 處理完成 ===")
-        # 確保返回絕對路徑
-        absolute_output = os.path.abspath(output_file)
-        print(f"[DEBUG] 輸出檔案絕對路徑: {absolute_output}")
-        print(f"[DEBUG] 準備返回: True, {absolute_output}")
-        return True, absolute_output
 
     except Exception as e:
         print(f"\n處理過程中發生錯誤: {str(e)}")
