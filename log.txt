@@ -1,40 +1,54 @@
-[debug] File locking is not supported. Proceeding without locking
-[debug] ffmpeg command line: C:\Users\gogo\AppData\Local\yt-dlp-gui\ffprobe -show_streams file:yt.webm
-[debug] ffmpeg command line: C:\Users\gogo\AppData\Local\yt-dlp-gui\ffmpeg -y -loglevel repeat+info -i file:yt.webm -vn -acodec libmp3lame -q:a 0.0 -movflags +faststart file:yt.mp3
+轉錄完成，共 266 個段落
+
+=== 儲存結果 ===
+已儲存到: D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\tool\yt_srt\download_data\yt_part_1.txt
+檔案大小: 9075 bytes
+內容長度: 3049 字元
+內容預覽: 高但是他報酬率是比較低一點，好，然後我們第二個就來看固定資產，固定資產當然是指我們的廠房機器設備要有些時候會有，房屋有些時候會有土地這些項目，那這些項目呢我們原則上如果說要拿來跟我們，上一頁所講到流動資產去做一個對比來講的話，他通常報酬率比較高但是流動性比較低，我們先來講流動性，他這時候流動性比較低的原因就是說我們說，存貨啦或是應收這樣的話，只要我們合乎，客戶，所，約定的那些條件去交付的話那我們理...
+[DEBUG] 函數返回: success=True, output_file=D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\tool\yt_srt\download_data\yt_part_1.txt
+
+成功！輸出檔案: D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\tool\yt_srt\download_data\yt_part_1.txt
+
+等待字幕檔案生成: D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\tool\yt_srt\download_data\yt_part_1.txt
+[OK] 成功找到字幕檔案: D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\tool\yt_srt\download_data\yt_part_1.txt (9075 bytes)
+[DEBUG] 段落 2 字幕長度: 3049 字元
+[2025-09-22 20:18:22] [ERROR   ] discord.client: Attempting a reconnect in 2.89s
 Traceback (most recent call last):
-  File "D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\tool\yt_srt\tool_srt.py", line 288, in yt_srt_generation
-    print(f"\u2713 Gwxs: {output_file} (jp: {file_size} bytes)")
-UnicodeEncodeError: 'cp950' codec can't encode character '\u2713' in position 0: illegal multibyte sequence
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\asyncio\tasks.py", line 520, in wait_for
+    return await fut
+           ^^^^^^^^^
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\site-packages\discord\gateway.py", line 375, in from_client
+    socket = await client.http.ws_connect(str(url))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\site-packages\discord\http.py", line 554, in ws_connect
+    return await self.__session.ws_connect(url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\site-packages\aiohttp\client.py", line 1004, in _ws_connect
+    resp = await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\site-packages\aiohttp\client.py", line 730, in _request
+    await resp.start(conn)
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\site-packages\aiohttp\client_reqrep.py", line 1059, in start
+    message, payload = await protocol.read()  # type: ignore[union-attr]
+                       ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\site-packages\aiohttp\streams.py", line 672, in read
+    await self._waiter
+asyncio.exceptions.CancelledError
 
-During handling of the above exception, another exception occurred:
+The above exception was the direct cause of the following exception:
 
 Traceback (most recent call last):
-  File "D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\tool\yt_srt\tool_srt.py", line 318, in <module>
-    success, output_file = yt_srt_generation(test_url)
-                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\tool\yt_srt\tool_srt.py", line 300, in yt_srt_generation
-    print(f"~Ա:\n{traceback.format_exc()}")
-UnicodeEncodeError: 'cp950' codec can't encode character '\u2713' in position 170: illegal multibyte sequence
-
-During handling of the above exception, another exception occurred:
-
-Traceback (most recent call last):
-  File "D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\tool\yt_srt\tool_srt.py", line 330, in <module>
-    print(f"~Ա:\n{traceback.format_exc()}")
-UnicodeEncodeError: 'cp950' codec can't encode character '\u2713' in position 170: illegal multibyte sequence
-
-等待 yt.txt 檔案生成...
-✓ 成功生成 yt.txt (大小: 13297 bytes)，等待時間: 0 秒
-[DEBUG] 成功生成字幕檔案: D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\tool\yt_srt\yt.txt
-[DEBUG] 成功讀取字幕內容，長度: 12881 字元
-[DEBUG] 準備使用 Ollama 生成摘要，關鍵詞: 請摘要影片內容
-[DEBUG] 成功生成摘要
-[DEBUG] 已刪除字幕檔案: D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\tool\yt_srt\yt.txt
-[DEBUG] 已刪除 MP3 檔案: D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\tool\yt_srt\yt.mp3
-[DEBUG] 已輸出摘要到: D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\save_history\yt_summary_20250920_184703.txt
-[DEBUG] 工具結果: 來源: https://www.youtube.com/watch?v=NTKC-LExZlI
-
-**影片摘要**
-
-- **產品概述**
-  影片作者試戴 Meta 新款 $799 的 Ray‑Ban 透明顯示智慧眼鏡。
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\site-packages\discord\client.py", line 701, in connect
+    self.ws = await asyncio.wait_for(coro, timeout=60.0)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\asyncio\tasks.py", line 519, in wait_for
+    async with timeouts.timeout(timeout):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\gogo\AppData\Local\Programs\Python\Python312\Lib\asyncio\timeouts.py", line 115, in __aexit__
+    raise TimeoutError from exc_val
+TimeoutError
+[DEBUG] 已清理段落 2 的檔案
+[2025-09-22 20:18:32] [INFO    ] discord.gateway: Shard ID None session has been invalidated.
+準備處理音頻段 2: yt_part_2.mp3
+工作目錄: D:\OneDrive\code\mygithub\Discord_bot_for_Ollama\tool\yt_srt
+執行 Whisper 轉錄...

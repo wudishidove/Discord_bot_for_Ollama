@@ -712,9 +712,134 @@ def handle_promt_history(context):
                         "role": "assistant",
                         "content": ai_response
                     })
-    
-    
+
+
     return messages
+
+async def process_youtube_srt_streaming(url, user_input):
+    """
+    YouTube字幕分段處理並即時yield結果
+
+    Args:
+        url: YouTube影片網址
+        user_input: 使用者的關鍵詞
+
+    Yields:
+        str: 段落處理進度和摘要
+    """
+    import os
+    from tool.yt_srt.download_and_slice import download_and_slice_audio
+    from tool.yt_srt.process_single_segment import process_single_segment
+
+    # Step 1: 下載並切片（不佔用GPU）
+    yield "\n📥 正在下載影片音訊..."
+    success, mp3_files = download_and_slice_audio(url)
+
+    if not success:
+        yield "\n❌ 影片下載或切片失敗"
+        return
+
+    total_segments = len(mp3_files)
+    yield f"\n✅ 音訊處理完成，共 {total_segments} 個段落"
+
+    all_summaries = []
+
+    # Step 2: 逐段處理
+    for i, mp3_file in enumerate(mp3_files):
+        segment_num = i + 1
+
+        # 2.1: 生成SRT (subprocess隔離，佔用GPU)
+        yield f"\n\n📝 【段落 {segment_num}/{total_segments}】正在生成字幕..."
+
+        success, txt_path = process_single_segment(mp3_file, i)
+
+        if not success:
+            yield f"\n❌ 【段落 {segment_num}/{total_segments}】字幕生成失敗"
+            continue
+
+        # 2.2: 讀取字幕（完整內容）
+        try:
+            with open(txt_path, 'r', encoding='utf-8') as f:
+                srt_text = f.read()
+            print(f"[DEBUG] 段落 {segment_num} 字幕長度: {len(srt_text)} 字元")
+        except Exception as e:
+            yield f"\n❌ 【段落 {segment_num}/{total_segments}】無法讀取字幕檔案: {str(e)}"
+            continue
+
+        # 2.3: 生成摘要 (給LLM完整的段落文字)
+        yield f"\n🤖 【段落 {segment_num}/{total_segments}】正在生成摘要..."
+
+        # 保持與現有 ollama_tool.py 中的 prompt
+        url_promt = [
+            {"role": "system", "content": f"""請根據關鍵詞「{user_input if user_input else '完整內容'}」從以下逐字稿內容中提取相關資訊並生成摘要。
+            要求：
+            1. 嚴格要求根據逐字稿內容回答，不要加入自己的想像或猜測。
+            2. 盡可能保留與關鍵詞最相關的內容，其餘細節部份越詳細越好。
+            3. 摘要限制在2000字以內，除非必要不要超過。
+            4. 如果找不到相關內容，請正常提取逐字稿摘要即可。
+            """},
+            {"role": "user", "content": f"逐字稿內容:\n{srt_text}"}  # 給完整的段落文字
+        ]
+
+        try:
+            response = client.chat(
+                model=GV.current_model,
+                messages=url_promt
+            )
+
+            if response and 'message' in response and 'content' in response['message']:
+                summary = response['message']['content']
+                all_summaries.append(summary)
+
+                # 2.4: Yield段落摘要
+                yield f"\n✅ 【段落 {segment_num}/{total_segments}】\n{summary}\n"
+            else:
+                yield f"\n❌ 【段落 {segment_num}/{total_segments}】摘要生成失敗"
+
+        except Exception as e:
+            yield f"\n❌ 【段落 {segment_num}/{total_segments}】生成摘要時發生錯誤: {str(e)}"
+
+        # 2.5: 清理檔案
+        try:
+            if os.path.exists(txt_path):
+                os.remove(txt_path)
+            if os.path.exists(mp3_file):
+                os.remove(mp3_file)
+            print(f"[DEBUG] 已清理段落 {segment_num} 的檔案")
+        except Exception as e:
+            print(f"[WARNING] 清理檔案時發生錯誤: {str(e)}")
+
+    # Step 3: 生成總結（僅當有多個段落時）
+    if len(all_summaries) > 1:
+        yield f"\n\n📊 正在生成總體摘要..."
+
+        # 合併所有摘要
+        combined_summaries = "\n\n".join([f"段落{i+1}：\n{s}" for i, s in enumerate(all_summaries)])
+
+        # 基於各段摘要生成總體摘要
+        final_prompt = [
+            {"role": "system", "content": f"""請根據關鍵詞「{user_input if user_input else '完整內容'}」從以下各段落摘要中生成一個完整的總體摘要。
+            要求：
+            1. 整合各段落的重點內容。
+            2. 保持邏輯連貫性。
+            3. 摘要限制在2000字以內。
+            """},
+            {"role": "user", "content": f"各段落摘要:\n{combined_summaries}"}
+        ]
+
+        try:
+            response = client.chat(
+                model=GV.current_model,
+                messages=final_prompt
+            )
+
+            if response and 'message' in response and 'content' in response['message']:
+                final_summary = response['message']['content']
+                yield f"\n\n🎯 【總體摘要】\n{final_summary}"
+        except Exception as e:
+            yield f"\n❌ 生成總體摘要時發生錯誤: {str(e)}"
+
+    yield f"\n\n✅ YouTube 影片處理完成！"
 
 async def stream_response(user_input, channel_id,thinking_messages):
     """
@@ -823,27 +948,49 @@ async def stream_response(user_input, channel_id,thinking_messages):
                         try:
                             tool_name = tool_call['function']['name']
                             arguments_str = tool_call['function']['arguments']
-                            
+
                             try:
                                 arguments = json.loads(arguments_str) if isinstance(arguments_str, str) else arguments_str
                             except json.JSONDecodeError:
                                 print(f"[ERROR] 無法解析工具參數: {arguments_str}")
                                 arguments = {}
-                            
+
+                            # ===== 特殊處理 get_youtube_srt =====
+                            if tool_name == 'get_youtube_srt':
+                                print(f"[DEBUG] 檢測到 get_youtube_srt，切換到流式處理")
+                                yield buffer + f"\n\n🎬 正在處理 YouTube 影片..."
+
+                                # 從參數中取得 url 和 user_input
+                                url = arguments.get('url', '')
+                                user_input_arg = arguments.get('user_input', '')
+
+                                # 調用新的流式處理函數
+                                async for segment_result in process_youtube_srt_streaming(url, user_input_arg):
+                                    yield segment_result
+
+                                # 將結果加入 messages（用於後續對話）
+                                final_result = "YouTube 影片處理完成，已生成各段落摘要"
+                                messages.append({"role": "tool", "content": final_result})
+
+                                # 處理完成，跳出工具處理循環
+                                break
+                            # ===== 結束特殊處理 =====
+
+                            # 原有的其他工具處理邏輯
                             # 顯示工具執行狀態
                             yield buffer + f"\n\n🔧 正在使用工具：{tool_name}"
-                            
+
                             # 執行工具
                             print(f"[DEBUG] 調用工具: {tool_name} 參數: {arguments}")
                             result = globals()[tool_name](**arguments)
                             print(f"[DEBUG] 工具結果: {result[:1000]}...") if isinstance(result, str) and len(result) > 1000 else print(f"[DEBUG] 工具結果: {result}")
-                            
+
                             messages.append({"role": "tool", "content": result})
-                            
+
                             # 顯示工具執行結果
                             tool_result_preview = result[:300] + "..." if len(str(result)) > 300 else str(result)
                             yield buffer + f"\n\n🔧 工具 {tool_name} 執行結果：\n{tool_result_preview}"
-                            
+
                         except Exception as e:
                             error_msg = f"工具 {tool_name} 執行錯誤: {str(e)}"
                             print(f"[ERROR] {error_msg}")
@@ -853,42 +1000,34 @@ async def stream_response(user_input, channel_id,thinking_messages):
                     # 檢查工具回應是否已滿足需求
                     if not check_if_tool_is_still_needed(tool_name,messages):
                         print(f"[DEBUG] 工具回應已滿足需求")
+                        # 切換到一般對話模式
+                        print(f"[DEBUG] 切換到一般對話模式")
+                        messages.append({"role": "system", "content": """依照使用者的問題和工具的結果進行完整的回答，不能用...結尾"""})
+                        # 使用包含工具結果的 messages 進行最終回應
+                        usable_model = ensure_model_available(GV.current_model)
+                        stream = client.chat(
+                            model=usable_model,
+                            messages=messages,
+                            stream=True
+                        )
 
-                        # 如果是 get_youtube_srt 工具，直接輸出完整結果
-                        if tool_name == 'get_youtube_srt':
-                            print(f"[DEBUG] 檢測到 get_youtube_srt 工具，直接輸出完整結果")
-                            # 直接輸出完整的工具結果
-                            yield result
-                            break  # 跳出 while True 循環
-                        else:
-                            # 其他工具保持原有邏輯
-                            print(f"[DEBUG] 切換到一般對話模式")
-                            messages.append({"role": "system", "content": """依照使用者的問題和工具的結果進行完整的回答，不能用...結尾"""})
-                            # 使用包含工具結果的 messages 進行最終回應
-                            usable_model = ensure_model_available(GV.current_model)
-                            stream = client.chat(
-                                model=usable_model,
-                                messages=messages,
-                                stream=True
-                            )
+                        final_buffer = ""
+                        last_update_time = time.time()
 
-                            final_buffer = ""
-                            last_update_time = time.time()
+                        for chunk in stream:
+                            if 'message' in chunk and 'content' in chunk['message']:
+                                new_text = chunk['message']['content']
+                                if new_text:
+                                    final_buffer += new_text
+                                    # 每0.5秒更新一次，確保逐步輸出
+                                    if time.time() - last_update_time >= 0.5 and final_buffer:
+                                        yield final_buffer
+                                        last_update_time = time.time()
 
-                            for chunk in stream:
-                                if 'message' in chunk and 'content' in chunk['message']:
-                                    new_text = chunk['message']['content']
-                                    if new_text:
-                                        final_buffer += new_text
-                                        # 每0.5秒更新一次，確保逐步輸出
-                                        if time.time() - last_update_time >= 0.5 and final_buffer:
-                                            yield final_buffer
-                                            last_update_time = time.time()
-
-                            # 確保最後的內容也被傳送出去
-                            if final_buffer:
-                                yield final_buffer
-                            break  # 跳出 while True 循環
+                        # 確保最後的內容也被傳送出去
+                        if final_buffer:
+                            yield final_buffer
+                        break  # 跳出 while True 循環
                 else:
                     # 沒有工具調用，結束循環
                     break
@@ -1049,21 +1188,82 @@ async def on_message(message):
         final_response = ""  # 儲存最終完整回應
         try:
             # 非同步迭代器取得逐步更新的回應
+            segment_messages = {}  # 儲存段落編號與訊息物件的對應關係
+            import re
+
             async for partial in stream_response(user_input, message.channel.id,thinking_messages):
                 final_response = partial  # 更新最新累積回應
-                # 將累積的回應切割為多個不超過2000字的段落
-                segments = [partial[i:i+2000] for i in range(0, len(partial), 2000)]
-                for idx, seg in enumerate(segments):
-                    if idx < len(thinking_messages):
-                        # 編輯已存在的訊息
-                        try:
-                            await thinking_messages[idx].edit(content=seg)
-                        except Exception as e:
-                            print(f"[DEBUG] 編輯訊息失敗: {e}")
-                    else:
-                        # 發送新訊息
-                        new_msg = await message.channel.send(seg)
-                        thinking_messages.append(new_msg)
+
+                # 檢查是否包含段落相關內容
+                if "【段落" in partial and "】" in partial:
+                    # 尋找所有段落更新（包括 📝, 🤖, ✅, ❌）
+                    lines = partial.split('\n')
+
+                    for i, line in enumerate(lines):
+                        # 檢查是否為段落相關行
+                        segment_match = re.search(r'[📝🤖✅❌]\s*【段落\s*(\d+)/\d+】', line)
+                        if segment_match:
+                            segment_num = segment_match.group(1)
+
+                            # 判斷訊息類型
+                            if '📝' in line:
+                                # 新段落開始，創建新訊息
+                                if segment_num not in segment_messages:
+                                    # 獲取該段落的所有內容（從當前行開始，直到下一個段落或結束）
+                                    segment_content = []
+                                    for j in range(i, len(lines)):
+                                        segment_content.append(lines[j])
+                                        # 檢查下一行是否為新段落
+                                        if j + 1 < len(lines) and re.search(r'[📝🤖✅❌]\s*【段落\s*\d+/\d+】', lines[j + 1]):
+                                            if lines[j + 1] != line:  # 不是同一行
+                                                break
+
+                                    content = '\n'.join(segment_content).strip()
+                                    if content:
+                                        # 發送新訊息並儲存參照
+                                        new_msg = await message.channel.send(content[:2000])
+                                        segment_messages[segment_num] = new_msg
+                                        await asyncio.sleep(0.3)
+
+                            elif segment_num in segment_messages:
+                                # 更新現有段落訊息（🤖, ✅, ❌）
+                                # 獲取該段落的完整更新內容
+                                segment_content = []
+                                for j in range(i, len(lines)):
+                                    segment_content.append(lines[j])
+                                    # 檢查下一行是否為新段落
+                                    if j + 1 < len(lines) and re.search(r'[📝🤖✅❌]\s*【段落\s*\d+/\d+】', lines[j + 1]):
+                                        if not re.search(rf'【段落\s*{segment_num}/\d+】', lines[j + 1]):  # 不是同一段落
+                                            break
+
+                                content = '\n'.join(segment_content).strip()
+                                if content:
+                                    try:
+                                        await segment_messages[segment_num].edit(content=content[:2000])
+                                    except Exception as e:
+                                        print(f"[DEBUG] 編輯段落 {segment_num} 失敗: {e}")
+
+                elif "🎯 【總體摘要】" in partial:
+                    # 總體摘要發送為新訊息
+                    summary_start = partial.find("🎯 【總體摘要】")
+                    summary_text = partial[summary_start:]
+                    await message.channel.send(summary_text[:2000])
+
+                else:
+                    # 非段落內容，使用原有的編輯邏輯
+                    segments = [partial[i:i+2000] for i in range(0, len(partial), 2000)]
+                    for idx, seg in enumerate(segments):
+                        if idx < len(thinking_messages):
+                            # 編輯已存在的訊息
+                            try:
+                                await thinking_messages[idx].edit(content=seg)
+                            except Exception as e:
+                                print(f"[DEBUG] 編輯訊息失敗: {e}")
+                        else:
+                            # 發送新訊息
+                            new_msg = await message.channel.send(seg)
+                            thinking_messages.append(new_msg)
+
                 # 等待0.1秒再處理下一次更新
                 await asyncio.sleep(0.1)
             # 回應全部取得完畢後，記錄回應歷史

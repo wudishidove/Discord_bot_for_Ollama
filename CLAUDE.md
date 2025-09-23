@@ -45,20 +45,27 @@ pip install faster-whisper torch yt-dlp
 ### YouTube Subtitle Tool System
 
 **Architecture Overview**
-The YouTube subtitle extraction tool provides automated transcription of YouTube videos using a two-layer architecture for crash protection and reliability.
+The YouTube subtitle extraction tool provides automated transcription of YouTube videos using a two-layer architecture for crash protection and reliability. The system now supports automatic audio slicing for long videos with overlapping segments to ensure complete transcription.
 
 **Components**
 
 1. **Subprocess Wrapper (`tool/yt_srt/run_srt_tool.py`)**
    - Isolates the main transcription process using subprocess to prevent crashes from affecting the bot
    - Manages file paths with absolute path resolution for Windows compatibility
-   - Monitors output file generation with 300-second timeout protection
-   - Returns `(success: bool, output_path: str | None)` tuple
-   - Automatically checks for existing `yt.txt` files to avoid redundant processing
+   - Monitors all output files in `download_data/` directory with 300-second timeout protection
+   - Returns `(success: bool, download_data_dir: str | None)` tuple
+   - Automatically checks for existing txt files in download_data to avoid redundant processing
 
 2. **Core Processor (`tool/yt_srt/tool_srt.py`)**
+   - **Directory Management**: Cleans and manages `download_data/` directory for all files
    - **Video Download**: Uses yt-dlp (module or CLI fallback) to download YouTube audio as MP3
+   - **Audio Slicing** (NEW):
+     - Automatically slices audio files > 10 minutes using pydub
+     - Creates 11-minute segments with 2-minute overlaps (0-11, 9-21, 19-31...)
+     - Ensures complete coverage without missing content
    - **Transcription**: Leverages OpenAI Whisper large-v3 model via faster_whisper
+     - Processes each audio segment separately
+     - Generates individual `.txt` files for each part
    - **Language Support**: Auto-detection or manual specification
    - **Output Formats**:
      - `normal`: Plain text with comma separation
@@ -69,25 +76,70 @@ The YouTube subtitle extraction tool provides automated transcription of YouTube
 **Integration with Bot**
 - Function: `get_youtube_srt(url: str, user_input: str = "") -> str` in `ollama_tool.py`
 - Automatically triggered by keywords in user messages
-- Returns transcribed text content or error messages
+- Reads all `.txt` files from `download_data/` directory
+- Combines multiple transcription parts for summarization
+- Cleans up all files after processing
+- Returns summarized content or error messages
 
 **File Management**
 ```
 tool/yt_srt/
-├── run_srt_tool.py       # Subprocess wrapper for crash isolation
-├── tool_srt.py           # Core transcription logic
-├── yt.mp3                # Downloaded audio (temporary)
-└── yt.txt                # Transcription output
+├── run_srt_tool.py         # Subprocess wrapper for crash isolation
+├── tool_srt.py             # Core transcription logic with slicing
+└── download_data/          # All downloaded and generated files
+    ├── yt.mp3              # Full original audio
+    ├── yt.txt              # Transcription (for videos ≤ 10 min)
+    ├── yt_part_0.mp3       # First segment (0-11 min)
+    ├── yt_part_0.txt       # First segment transcription
+    ├── yt_part_1.mp3       # Second segment (9-21 min)
+    ├── yt_part_1.txt       # Second segment transcription
+    └── ...                 # Additional segments as needed
 ```
+
+**Audio Slicing Details**
+- **Threshold**: Videos > 10 minutes are automatically sliced
+- **Segment Length**: 11 minutes (10 min content + 1 min overlap on each side)
+- **Overlap**: 2 minutes between segments to ensure no content is lost
+- **Pattern**: 0-11 min, 9-21 min, 19-31 min, etc.
+- **File Naming**: `yt_part_0.mp3`, `yt_part_1.mp3`, etc.
 
 **Processing Flow**
 1. User provides YouTube URL
 2. `run_srt_tool_isolated()` spawns subprocess with `tool_srt.py`
-3. Downloads MP3 using yt-dlp with ffmpeg conversion
-4. Loads Whisper large-v3 model (CUDA/CPU auto-detection)
-5. Transcribes audio with beam search (beam_size=8)
-6. Saves transcription to `yt.txt`
-7. Parent process monitors and returns file path
+3. Cleans `download_data/` directory of old files
+4. Downloads MP3 using yt-dlp with ffmpeg conversion to `download_data/yt.mp3`
+5. **Audio Slicing** (if > 10 minutes):
+   - Detects audio duration using pydub
+   - Slices into 11-minute overlapping segments
+   - Saves as `yt_part_0.mp3`, `yt_part_1.mp3`, etc.
+6. Loads Whisper large-v3 model (CUDA/CPU auto-detection)
+7. Transcribes each audio file separately with beam search (beam_size=8)
+8. Saves individual transcriptions:
+   - Single file: `yt.txt` (for videos ≤ 10 min)
+   - Multiple files: `yt_part_0.txt`, `yt_part_1.txt`, etc. (for longer videos)
+9. Parent process monitors and returns download_data directory path
+10. `get_youtube_srt()` reads all txt files, combines them, and sends to Ollama for summarization
+
+**Discord Message Handling for Batch Processing**
+When processing YouTube videos with multiple segments:
+
+1. **Message Flow**:
+   - Each segment gets its own Discord message to prevent overwriting
+   - Progress updates are handled through message editing
+   - Final summaries are sent as new messages
+
+2. **Segment Processing Display**:
+   - `📝 【段落 X/Y】正在生成字幕...` - New segment starts, creates new Discord message
+   - `🤖 【段落 X/Y】正在生成摘要...` - Updates the same segment's message
+   - `✅ 【段落 X/Y】摘要內容` - Final summary, edits the segment's message
+   - `🎯 【總體摘要】` - Overall summary, sent as new message
+
+3. **Implementation Details** (`bot_with_history.py`):
+   - Uses `segment_messages = {}` dictionary to track segment number to Discord message mapping
+   - When `📝` is detected, creates new message for that segment
+   - Subsequent `🤖` and `✅` updates edit the corresponding segment's message
+   - Prevents previous segments from being overwritten by new ones
+   - Each segment maintains its complete summary in chat history
 
 **Error Handling**
 - Subprocess crash isolation prevents bot termination
