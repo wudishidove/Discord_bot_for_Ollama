@@ -743,6 +743,7 @@ async def process_youtube_srt_streaming(url, user_input):
     yield f"\n✅ 音訊處理完成，共 {total_segments} 個段落"
 
     all_summaries = []
+    previous_context = ""  # 儲存前一段的最後100字元
 
     # Step 2: 逐段處理
     for i, mp3_file in enumerate(mp3_files):
@@ -760,7 +761,14 @@ async def process_youtube_srt_streaming(url, user_input):
         # 2.2: 讀取字幕（完整內容）
         try:
             with open(txt_path, 'r', encoding='utf-8') as f:
-                srt_text = f.read()
+                original_srt_text = f.read()  # 保存原始內容
+
+            # 如果是第二段以上，加入前段上下文
+            if i > 0 and previous_context:
+                srt_text = previous_context + original_srt_text
+            else:
+                srt_text = original_srt_text
+
             print(f"[DEBUG] 段落 {segment_num} 字幕長度: {len(srt_text)} 字元")
         except Exception as e:
             yield f"\n❌ 【段落 {segment_num}/{total_segments}】無法讀取字幕檔案: {str(e)}"
@@ -793,6 +801,9 @@ async def process_youtube_srt_streaming(url, user_input):
 
                 # 2.4: Yield段落摘要
                 yield f"\n✅ 【段落 {segment_num}/{total_segments}】\n{summary}\n"
+
+                # 保存當前段落原始內容的最後100字元
+                previous_context = original_srt_text[-100:] if len(original_srt_text) > 100 else original_srt_text
             else:
                 yield f"\n❌ 【段落 {segment_num}/{total_segments}】摘要生成失敗"
 

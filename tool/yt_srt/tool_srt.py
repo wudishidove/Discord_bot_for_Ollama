@@ -26,7 +26,7 @@ def clean_download_data_dir(download_dir: str):
 
 def slice_audio_with_overlap(mp3_path: str, download_dir: str) -> list[str]:
     """
-    將超過10分鐘的音頻切片，每片11分鐘，片段間重疊2分鐘
+    將超過10分鐘的音頻切片，每片10.5分鐘，片段間重疊30秒
 
     Args:
         mp3_path: 原始MP3檔案路徑
@@ -49,8 +49,8 @@ def slice_audio_with_overlap(mp3_path: str, download_dir: str) -> list[str]:
             return [mp3_path]
 
         # 計算切片參數
-        segment_duration = 11 * 60 * 1000  # 11分鐘（毫秒）
-        step_duration = 9 * 60 * 1000      # 步進9分鐘（重疊2分鐘）
+        segment_duration = 10.5 * 60 * 1000  # 10.5分鐘（毫秒）
+        step_duration = 9.5 * 60 * 1000      # 步進9.5分鐘（重疊30秒）
 
         sliced_files = []
         part_index = 0
@@ -77,7 +77,7 @@ def slice_audio_with_overlap(mp3_path: str, download_dir: str) -> list[str]:
             if end_time >= duration_ms:
                 break
 
-            # 移動到下一個片段（步進9分鐘）
+            # 移動到下一個片段（步進9.5分鐘）
             start_time += step_duration
             part_index += 1
 
