@@ -728,16 +728,35 @@ async def process_youtube_srt_streaming(url, user_input):
         str: 段落處理進度和摘要
     """
     import os
-    from tool.yt_srt.download_and_slice import download_and_slice_audio
+    from tool.yt_srt.download_and_slice import download_and_slice_audio, update_yt_dlp
     from tool.yt_srt.process_single_segment import process_single_segment
 
-    # Step 1: 下載並切片（不佔用GPU）
+    # Step 1: 第一次下載嘗試
     yield "\n📥 正在下載影片音訊..."
+    print("\n 正在下載影片音訊...")
     success, mp3_files = download_and_slice_audio(url)
 
     if not success:
-        yield "\n❌ 影片下載或切片失敗"
-        return
+        # Step 2: 下載失敗，通知更新中
+        yield "\n⚙️ 下載失敗，更新yt下載器版本中..."
+        print("\n下載失敗，更新yt下載器版本中...")
+        # Step 3: 執行更新
+        update_result = update_yt_dlp()
+
+        if update_result:
+            # Step 4: 更新成功，第二次下載嘗試
+            yield "\n🔄 更新完成，重新下載中..."
+            print("\n 更新完成，重新下載中...")
+            success, mp3_files = download_and_slice_audio(url)
+
+            if not success:
+                # Step 5: 第二次也失敗，結束處理
+                yield "\n❌ 下載失敗：無法取得影片音訊，請檢查網址或稍後再試"
+                return
+        else:
+            # 更新失敗
+            yield "\n❌ yt-dlp 更新失敗，請手動更新或稍後再試"
+            return
 
     total_segments = len(mp3_files)
     yield f"\n✅ 音訊處理完成，共 {total_segments} 個段落"

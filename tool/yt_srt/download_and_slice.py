@@ -20,9 +20,39 @@ def clean_download_data_dir(download_dir: str):
         os.makedirs(download_dir, exist_ok=True)
         print(f"已建立目錄: {download_dir}")
 
+def update_yt_dlp() -> bool:
+    """更新 yt-dlp 套件"""
+    try:
+        print("\n=== 正在更新 yt-dlp ===")
+        print("執行: python -m pip install -U yt-dlp")
+
+        # 使用 subprocess 執行 pip 更新命令
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-U", "yt-dlp"],
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='ignore'
+        )
+
+        if result.returncode == 0:
+            print("✓ yt-dlp 更新成功")
+            if result.stdout:
+                print(f"更新詳情: {result.stdout}")
+            return True
+        else:
+            print("✗ yt-dlp 更新失敗")
+            if result.stderr:
+                print(f"錯誤訊息: {result.stderr}")
+            return False
+
+    except Exception as e:
+        print(f"✗ 更新 yt-dlp 時發生錯誤: {e}")
+        return False
+
 def download_youtube_mp3(url: str, output_dir: str = ".") -> tuple[bool, str | None]:
     """
-    下載YouTube視頻為MP3音頻文件
+    下載YouTube視頻為MP3音頻文件（只使用CLI方式）
 
     Args:
         url: YouTube視頻網址
@@ -35,42 +65,8 @@ def download_youtube_mp3(url: str, output_dir: str = ".") -> tuple[bool, str | N
     download_dir = os.path.join(output_dir, "download_data")
     os.makedirs(download_dir, exist_ok=True)
 
-    # 嘗試使用 yt-dlp Python 模塊
-    try:
-        import yt_dlp
-
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
-            'outtmpl': os.path.join(download_dir, 'yt.%(ext)s'),
-            'quiet': False,
-            'no_warnings': False,
-        }
-
-        print(f"使用 yt-dlp 模塊下載: {url}")
-
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-
-        mp3_path = os.path.join(download_dir, "yt.mp3")
-        if os.path.exists(mp3_path):
-            print(f"下載成功！{mp3_path}")
-            return True, mp3_path
-        else:
-            print(f"下載完成但未找到 MP3 文件於: {mp3_path}")
-            return False, None
-
-    except ImportError:
-        print("yt-dlp模塊未安裝，嘗試使用外部命令")
-    except Exception as e:
-        print(f"yt-dlp模塊執行失敗: {e}")
-        print("切換到外部命令模式")
-
-    # 如果模塊方式失敗，嘗試使用外部命令
+    # 直接使用 CLI 方式，避免 Python 模組緩存問題
+    print(f"使用 yt-dlp CLI 下載: {url}")
     return _download_with_cli(url, output_dir)
 
 def _download_with_cli(url: str, output_dir: str) -> tuple[bool, str | None]:
