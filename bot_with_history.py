@@ -39,15 +39,7 @@ MODEL_MAX_TOKENS = {
     "mistral-small3.2:24b": 131072,
     "gpt-oss:latest": 131072
 }
-# calling tools
-tools = [
-    generate_function_description(get_local_time),
-    generate_function_description(google_search),
-    # generate_function_description(advanced_web_search),
-    generate_function_description(fetch_url_content),
-    generate_function_description(do_math),
-    generate_function_description(get_youtube_srt),
-]
+# tools 已從 ollama_tool 導入，不需要在此定義
 # Ollama client
 client = ollama.Client(host="http://localhost:11434")
 
@@ -922,19 +914,16 @@ async def stream_response(user_input, channel_id,thinking_messages):
     
     # 添加用戶輸入
     messages.append({"role": "user", "content": user_input,"images": image_list})
-    
-    # 檢查是否需要使用工具（關鍵字檢測）
-    need_tools = any(keyword in user_input.lower() for keyword in [
-        '搜尋', '搜索', '查詢', '天氣', '時間', '計算', '數學', '幾點', '現在', '今天',
-        'search', 'weather', 'time', 'calculate', 'math', 'what time', 'current', 'today','https://','http://'
-    ])
+    yield  f"正在判斷是否需要工具..."
+    # 使用 AI 判斷是否需要使用工具
+    need_tools, suggested_tool = if_need_tools(messages)
     
     try:
         client = ollama.Client(host="http://localhost:11434")
         print("[DEBUG] input messages:", json.dumps(messages, ensure_ascii=False, indent=2))
-        
+       
         if need_tools:
-            print(f"[DEBUG] 檢測到需要工具的關鍵字，使用工具模式")
+            print(f"[DEBUG] AI 判斷需要使用工具，建議工具: {suggested_tool}")
             # 直接使用帶工具的流式調用
             while True:
                 usable_model = ensure_model_available(GV.current_model)
@@ -1216,6 +1205,8 @@ async def on_message(message):
         first_msg = await message.channel.send("🤖 收到提及，正在思考...")
         thinking_messages.append(first_msg)
         final_response = ""  # 儲存最終完整回應
+        youtube_summaries = []  # 用於收集 YouTube 摘要
+        is_youtube_processing = False  # 標記是否在處理 YouTube
         try:
             # 非同步迭代器取得逐步更新的回應
             segment_messages = {}  # 儲存段落編號與訊息物件的對應關係
@@ -1223,6 +1214,31 @@ async def on_message(message):
 
             async for partial in stream_response(user_input, message.channel.id,thinking_messages):
                 final_response = partial  # 更新最新累積回應
+
+                # 檢測 YouTube 處理開始
+                if '🎬 正在處理 YouTube 影片' in partial:
+                    is_youtube_processing = True
+                    youtube_summaries = []  # 清空之前的內容
+
+                # 收集 YouTube 摘要內容
+                if is_youtube_processing:
+                    # 收集段落摘要和總體摘要
+                    if ('✅ 【段落' in partial and len(partial) > 50) or '🎯 【總體摘要】' in partial:
+                        # 提取實際摘要內容
+                        if '✅ 【段落' in partial:
+                            summary_start = partial.find('✅ 【段落')
+                        elif '🎯 【總體摘要】' in partial:
+                            summary_start = partial.find('🎯 【總體摘要】')
+                        else:
+                            summary_start = 0
+
+                        summary_content = partial[summary_start:]
+                        if summary_content and len(summary_content) > 20:  # 確保有實質內容
+                            youtube_summaries.append(summary_content)
+
+                    # YouTube 處理結束標記
+                    if '✅ YouTube 影片處理完成！' in partial:
+                        is_youtube_processing = False
 
                 # 檢查是否包含段落相關內容
                 if "【段落" in partial and "】" in partial:
@@ -1297,8 +1313,17 @@ async def on_message(message):
                 # 等待0.1秒再處理下一次更新
                 await asyncio.sleep(0.1)
             # 回應全部取得完畢後，記錄回應歷史
-            memory.save_context({"input": user_input}, {"output": final_response})
-            print("[DEBUG] Full response processed:", final_response)
+            # 如果有 YouTube 摘要，使用完整的摘要內容
+            if youtube_summaries:
+                # 合併所有摘要內容
+                youtube_full_content = '\n\n'.join(youtube_summaries)
+                # 加上結束標記
+                youtube_full_content += '\n\n✅ YouTube 影片處理完成！'
+                memory.save_context({"input": user_input}, {"output": youtube_full_content})
+                print(f"[DEBUG] YouTube content saved: {len(youtube_full_content)} chars")
+            else:
+                memory.save_context({"input": user_input}, {"output": final_response})
+                print("[DEBUG] Full response processed:", final_response)
             save_history_to_file(message.channel.id)  # 保存頻道特定的記憶歷史
         except Exception as e:
             # 發生錯誤時更新最後一則訊息

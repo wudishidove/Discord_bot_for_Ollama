@@ -9,11 +9,9 @@ import ollama
 import subprocess
 import os
 import global_var as GV
-from tool.yt_srt.run_srt_tool import run_srt_tool_isolated
 # 儲存當前選擇的模型
 
 client = ollama.Client(host="http://localhost:11434")
-
 def get_base_dir():
     """獲取 Discord_bot_for_Ollama 基礎目錄"""
     # 嘗試從 __file__ 獲取
@@ -125,7 +123,7 @@ def get_current_date(date_format="%Y-%m-%d") -> str:
 def get_local_time() -> str:
     """
     Get the current local date and time.
-    
+
     Returns:
         A string with the current date and time in YYYY-MM-DD HH:MM:SS format.
     """
@@ -313,125 +311,108 @@ def get_youtube_srt(url: str, user_input: str = "") -> str:
     Returns:
         包含影片字幕摘要的字串
     """
+
+    return f"處理 YouTube 影片時發生錯誤: 取得SRT的實作已變換到process_youtube_srt_streaming"
+
+def if_need_tools(messages: list) -> tuple[bool, str | None]:
+    """
+    檢查使用者的問題是否需要工具
+
+    Args:
+        messages: 包含對話紀錄的列表
+
+    Returns:
+        (True, tool_name): 需要調用工具
+        (False, None): 不須工具，進入一般對話模式
+    """
     try:
-        # 步驟1: 呼叫 yt_srt_generation 取得字幕檔案
-        print(f"[DEBUG] 開始處理 YouTube 影片: {url}")
-        success, output_dir = run_srt_tool_isolated(url)
+        # 提取最近的使用者訊息
+        user_message = None
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                user_message = msg.get("content", "")
+                break
 
-        if not success or not output_dir:
-            return f"YouTube srt failed,success: {success},dir: {output_dir}"
+        if not user_message:
+            return False, None
 
-        print(f"[DEBUG] 成功生成字幕，目錄: {output_dir}")
+        # 構建工具描述字串
+        tool_descriptions = []
+        for tool in tools:
+            func_info = tool.get("function", {})
+            name = func_info.get("name", "")
+            desc = func_info.get("description", "")
+            tool_descriptions.append(f"- {name}: {desc}")
 
-        # 步驟2: 讀取 download_data 目錄中的所有字幕檔案
-        try:
-            if not os.path.exists(output_dir):
-                return f"can't find output directory: {output_dir}"
+        tools_text = "\n".join(tool_descriptions)
 
-            # 找到所有 .txt 檔案
-            txt_files = sorted([f for f in os.listdir(output_dir) if f.endswith('.txt')])
+        # 準備判斷 prompt
+        check_prompt = [
+            {"role": "system", "content": f"""你是一個判斷助手。請判斷使用者的問題是否需要使用工具才能回答。
 
-            if not txt_files:
-                return f"No txt files found in {output_dir}"
+可用的工具：
+{tools_text}
 
-            print(f"[DEBUG] 找到 {len(txt_files)} 個字幕檔案: {txt_files}")
+判斷規則：
+1. 如果問題需要即時資訊（如當前時間、天氣、網路搜尋等），回答需要工具
+2. 如果問題包含網址需要獲取內容，回答需要工具
+3. 如果問題需要數學計算，回答需要工具
+4. 如果是一般對話聊天或常識內容，不需要工具
+4-1. 若牽涉到法律、專業知識，則需要工具(google_search)
+5. 如果問題包含YouTube連結，回答需要工具（使用get_youtube_srt）
 
-            # 讀取並合併所有字幕內容
-            combined_text = ""
-            for txt_file in txt_files:
-                txt_path = os.path.join(output_dir, txt_file)
-                with open(txt_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                    # 只添加檔案內容，不加分隔符以保持連續性
-                    combined_text += content + " "
-                    print(f"[DEBUG] 讀取 {txt_file}: {len(content)} 字元")
+回答格式必須是以下其中一種：
+- 如果需要工具：True, tool_name（例如：True, google_search）
+- 如果不需要工具：False, None
 
-            text = combined_text.strip()
-            print(f"[DEBUG] 合併後字幕內容長度: {len(text)} 字元")
-        except Exception as e:
-            return f"無法讀取字幕檔案: {str(e)}"
+只回答這個格式，不要有其他內容。"""},
+            {"role": "user", "content": f"使用者問題：{user_message}\n\n請判斷是否需要工具？"}
+        ]
 
-        # 步驟3: 如果有使用者輸入，使用 LLM 生成相關摘要
-        if user_input or text:
-            # 準備消息（根據 tool_promt.txt 的格式）
-            url_promt = [
-                {"role": "system", "content": f"""請根據關鍵詞「{user_input if user_input else '完整內容'}」從以下逐字稿內容中提取相關資訊並生成摘要。
-                要求：
-                1. 嚴格要求根據逐字稿內容回答，不要加入自己的想像或猜測。
-                2. 盡可能保留與關鍵詞最相關的內容，其餘細節部份越詳細越好。
-                3. 摘要限制在2000字以內，除非必要不要超過。
-                4. 如果找不到相關內容，請正常提取逐字稿摘要即可。
-                """},
-                {"role": "user", "content": f"逐字稿內容:\n{text[:20000]}"}  # 限制輸入長度
-            ]
+        # 調用 Ollama 進行判斷
+        response = client.chat(
+            model=GV.current_model,
+            messages=check_prompt,
+            stream=False
+        )
+        print("==="*10)
+        print(f"[DEBUG] if_need_tools 輸入: {check_prompt}")
+        # 解析回應
+        if response and 'message' in response and 'content' in response['message']:
+            result = response['message']['content'].strip()
+            print(f"[DEBUG] if_need_tools 判斷結果: {result}")
+            print("==="*10)
+            # 解析結果
+            if "True" in result:
+                # 提取工具名稱
+                parts = result.split(",")
+                if len(parts) >= 2:
+                    tool_name = parts[1].strip().strip("'\"")
+                    # 驗證工具名稱是否有效
+                    valid_tools = [t['function']['name'] for t in tools]
+                    if tool_name in valid_tools:
+                        return True, tool_name
+                    else:
+                        # 如果工具名稱無效，讓系統自己決定
+                        return True, None
+                return True, None
+            else:
+                return False, None
 
-            print(f"[DEBUG] 準備使用 Ollama 生成摘要，關鍵詞: {user_input if user_input else '無'}")
-
-            # 調用 LLM 生成摘要
-            try:
-                response = client.chat(
-                    model=GV.current_model,
-                    messages=url_promt
-                )
-
-                # 獲取摘要
-                if response and 'message' in response and 'content' in response['message']:
-                    summary = response['message']['content']
-                    print(f"[DEBUG] 成功生成摘要")
-                else:
-                    # 如果 LLM 處理失敗，返回原始文本的前1000個字符
-                    summary = text[:1000] + "..."
-
-            except Exception as e:
-                print(f"[DEBUG] Ollama 生成摘要失敗: {str(e)}")
-                # 如果 LLM 處理失敗，返回原始文本的前1000個字符
-                summary = text[:1000] + "..."
-        else:
-            # 如果沒有文本內容
-            summary = "無法取得字幕內容"
-
-        # 步驟4: 清理臨時檔案（清理 download_data 目錄中的所有檔案）
-        try:
-            if os.path.exists(output_dir):
-                # 刪除所有 txt 檔案
-                for txt_file in txt_files:
-                    txt_path = os.path.join(output_dir, txt_file)
-                    if os.path.exists(txt_path):
-                        os.remove(txt_path)
-                        print(f"[DEBUG] 已刪除字幕檔案: {txt_file}")
-
-                # 刪除所有 mp3 檔案
-                mp3_files = [f for f in os.listdir(output_dir) if f.endswith('.mp3')]
-                for mp3_file in mp3_files:
-                    mp3_path = os.path.join(output_dir, mp3_file)
-                    if os.path.exists(mp3_path):
-                        os.remove(mp3_path)
-                        print(f"[DEBUG] 已刪除 MP3 檔案: {mp3_file}")
-
-                print(f"[DEBUG] 已清理 download_data 目錄")
-
-        except Exception as e:
-            print(f"[DEBUG] 清理檔案時發生錯誤: {str(e)}")
-
-        # 返回摘要結果，並將結果存檔方便檢查
-        output_text = f"來源: {url}\n\n{summary}"
-        try:
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            base_filename = f"yt_summary_{timestamp}.txt"
-           
-            # 存到 save_history 目錄
-            save_history_dir = os.path.join(os.getcwd(), "save_history")
-            os.makedirs(save_history_dir, exist_ok=True)
-            save_history_path = os.path.join(save_history_dir, base_filename)
-            with open(save_history_path, 'w', encoding='utf-8') as f:
-                f.write(output_text)
-            print(f"[DEBUG] 已輸出摘要到: {save_history_path}")
-        except Exception as e:
-            print(f"[WARNING] 儲存摘要到檔案時發生錯誤: {str(e)}")
-        return output_text
+        return False, None
 
     except Exception as e:
-        return f"處理 YouTube 影片時發生錯誤: {str(e)}"
+        print(f"[ERROR] if_need_tools 發生錯誤: {str(e)}")
+        # 錯誤時回退到關鍵字檢測
+        if messages:
+            last_msg = messages[-1].get("content", "").lower() if messages[-1].get("role") == "user" else ""
+            keywords = ['搜尋', '搜索', '查詢', '天氣', '時間', '計算', '數學', '幾點',
+                       '現在', '今天', 'search', 'weather', 'time', 'calculate',
+                       'math', 'what time', 'current', 'today', 'https://', 'http://',
+                       'youtube.com', 'youtu.be']
+            if any(keyword in last_msg for keyword in keywords):
+                return True, None
+        return False, None
 
 def check_if_tool_is_still_needed(tool_name: str, messages: list) -> bool:
     """
@@ -515,7 +496,6 @@ def check_if_tool_is_still_needed(tool_name: str, messages: list) -> bool:
     except Exception as e:
         print(f"[ERROR] check_if_tool_is_still_needed 發生錯誤: {str(e)}")
         return False  # 發生錯誤時，預設不需要更多工具，避免無限循環
-
 def advanced_web_search(query: str) -> str:
     """Execute advanced web search using AI-enhanced multi-step process.
     
@@ -699,3 +679,12 @@ if __name__ == "__main__":
     except Exception as e:
         print("error:",e)
 
+# Initialize tools list at the end of the file after all functions are defined
+tools=[
+    generate_function_description(get_local_time),
+    generate_function_description(google_search),
+    # generate_function_description(advanced_web_search),
+    generate_function_description(fetch_url_content),
+    generate_function_description(do_math),
+    generate_function_description(get_youtube_srt),
+]

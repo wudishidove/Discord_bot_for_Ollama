@@ -45,80 +45,83 @@ pip install faster-whisper torch yt-dlp
 ### YouTube Subtitle Tool System
 
 **Architecture Overview**
-The YouTube subtitle extraction tool provides automated transcription of YouTube videos using a two-layer architecture for crash protection and reliability. The system now supports automatic audio slicing for long videos with overlapping segments to ensure complete transcription.
+The YouTube subtitle extraction tool provides automated transcription of YouTube videos using a streaming architecture with segment-by-segment processing. The system supports automatic audio slicing for long videos with overlapping segments and includes automatic yt-dlp updater for better reliability.
 
 **Components**
 
-1. **Subprocess Wrapper (`tool/yt_srt/run_srt_tool.py`)**
-   - Isolates the main transcription process using subprocess to prevent crashes from affecting the bot
-   - Manages file paths with absolute path resolution for Windows compatibility
-   - Monitors all output files in `download_data/` directory with 300-second timeout protection
-   - Returns `(success: bool, download_data_dir: str | None)` tuple
-   - Automatically checks for existing txt files in download_data to avoid redundant processing
+1. **Main Entry Point (`bot_with_history.py::process_youtube_srt_streaming`)**
+   - Handles the streaming response to Discord with real-time progress updates
+   - Manages automatic yt-dlp update and retry logic on download failures
+   - Yields progress messages for each processing stage
 
-2. **Core Processor (`tool/yt_srt/tool_srt.py`)**
-   - **Directory Management**: Cleans and manages `download_data/` directory for all files
-   - **Video Download**: Uses yt-dlp (module or CLI fallback) to download YouTube audio as MP3
-   - **Audio Slicing** (NEW):
-     - Automatically slices audio files > 10 minutes using pydub
-     - Creates 11-minute segments with 2-minute overlaps (0-11, 9-21, 19-31...)
+2. **Download and Slice Module (`tool/yt_srt/download_and_slice.py`)**
+   - **Video Download**: Uses yt-dlp CLI (no Python module to avoid caching issues) to download YouTube audio as MP3
+   - **Automatic Updater**: `update_yt_dlp()` function executes `python -m pip install -U yt-dlp` when download fails
+   - **Audio Slicing** (FFmpeg-based for 50x speed improvement):
+     - Automatically slices audio files > 10 minutes using FFmpeg
+     - Creates 12-minute segments with 2-minute overlaps (0-12, 10-22, 20-32...)
      - Ensures complete coverage without missing content
-   - **Transcription**: Leverages OpenAI Whisper large-v3 model via faster_whisper
-     - Processes each audio segment separately
-     - Generates individual `.txt` files for each part
-   - **Language Support**: Auto-detection or manual specification
-   - **Output Formats**:
-     - `normal`: Plain text with comma separation
-     - `timeline`: Text with timestamps `[start -> end] text`
-     - `subtitle`: Standard SRT format with numbered entries
+   - **Directory Management**: Cleans and manages `download_data/` directory
+
+3. **Segment Processor (`tool/yt_srt/process_single_segment.py`)**
+   - Controls individual segment processing via subprocess isolation
+   - Spawns `tool_srt_single.py` for GPU-intensive transcription work
+   - Returns transcription results or error messages
+
+4. **Single Segment Transcriber (`tool/yt_srt/tool_srt_single.py`)**
+   - **Transcription**: Uses OpenAI Whisper large-v3 model via faster_whisper
    - **GPU Acceleration**: Automatic CUDA detection for faster processing
+   - **Output Formats**: Plain text output optimized for summarization
+   - Processes one audio segment at a time to manage GPU memory
 
 **Integration with Bot**
-- Function: `get_youtube_srt(url: str, user_input: str = "") -> str` in `ollama_tool.py`
-- Automatically triggered by keywords in user messages
-- Reads all `.txt` files from `download_data/` directory
-- Combines multiple transcription parts for summarization
-- Cleans up all files after processing
-- Returns summarized content or error messages
+- Main function: `process_youtube_srt_streaming(url, user_input)` in `bot_with_history.py`
+- Automatically triggered by YouTube URL detection in messages
+- Streams progress updates to Discord in real-time
+- Handles segment-by-segment processing with individual summaries
+- Generates overall summary for multi-segment videos
 
 **File Management**
 ```
 tool/yt_srt/
-├── run_srt_tool.py         # Subprocess wrapper for crash isolation
-├── tool_srt.py             # Core transcription logic with slicing
-└── download_data/          # All downloaded and generated files
+├── download_and_slice.py   # Download, update, and audio slicing
+├── process_single_segment.py # Segment processing controller
+├── tool_srt_single.py      # Single segment transcription
+└── download_data/          # Temporary files (auto-cleaned)
     ├── yt.mp3              # Full original audio
-    ├── yt.txt              # Transcription (for videos ≤ 10 min)
-    ├── yt_part_0.mp3       # First segment (0-11 min)
+    ├── yt_part_0.mp3       # First segment (0-12 min)
     ├── yt_part_0.txt       # First segment transcription
-    ├── yt_part_1.mp3       # Second segment (9-21 min)
+    ├── yt_part_1.mp3       # Second segment (10-22 min)
     ├── yt_part_1.txt       # Second segment transcription
     └── ...                 # Additional segments as needed
 ```
 
 **Audio Slicing Details**
 - **Threshold**: Videos > 10 minutes are automatically sliced
-- **Segment Length**: 11 minutes (10 min content + 1 min overlap on each side)
+- **Segment Length**: 12 minutes (10 min content + 2 min overlap)
 - **Overlap**: 2 minutes between segments to ensure no content is lost
-- **Pattern**: 0-11 min, 9-21 min, 19-31 min, etc.
+- **Pattern**: 0-12 min, 10-22 min, 20-32 min, etc.
 - **File Naming**: `yt_part_0.mp3`, `yt_part_1.mp3`, etc.
 
-**Processing Flow**
+**Processing Flow with Auto-Update**
 1. User provides YouTube URL
-2. `run_srt_tool_isolated()` spawns subprocess with `tool_srt.py`
-3. Cleans `download_data/` directory of old files
-4. Downloads MP3 using yt-dlp with ffmpeg conversion to `download_data/yt.mp3`
+2. `process_youtube_srt_streaming()` attempts first download
+3. If download fails:
+   - Yields "⚙️ 下載失敗，更新yt下載器版本中..."
+   - Executes `update_yt_dlp()` to update yt-dlp
+   - Retries download once more
+   - If still fails, returns error and exits
+4. Downloads MP3 using yt-dlp CLI to `download_data/yt.mp3`
 5. **Audio Slicing** (if > 10 minutes):
-   - Detects audio duration using pydub
-   - Slices into 11-minute overlapping segments
-   - Saves as `yt_part_0.mp3`, `yt_part_1.mp3`, etc.
-6. Loads Whisper large-v3 model (CUDA/CPU auto-detection)
-7. Transcribes each audio file separately with beam search (beam_size=8)
-8. Saves individual transcriptions:
-   - Single file: `yt.txt` (for videos ≤ 10 min)
-   - Multiple files: `yt_part_0.txt`, `yt_part_1.txt`, etc. (for longer videos)
-9. Parent process monitors and returns download_data directory path
-10. `get_youtube_srt()` reads all txt files, combines them, and sends to Ollama for summarization
+   - Uses FFmpeg for fast slicing
+   - Creates 12-minute overlapping segments
+6. For each segment:
+   - Spawns subprocess with `tool_srt_single.py` for transcription
+   - Loads Whisper large-v3 model (CUDA/CPU auto-detection)
+   - Generates transcription and summary
+   - Yields progress to Discord
+7. Generates overall summary for multi-segment videos
+8. Cleans up all temporary files
 
 **Discord Message Handling for Batch Processing**
 When processing YouTube videos with multiple segments:
